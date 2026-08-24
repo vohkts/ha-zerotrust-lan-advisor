@@ -20,7 +20,7 @@
     </div>
     <div class="stat">
       <span class="stat-value">{{ ee }}</span>
-      <span class="stat-label">external &harr; external<br>(unusual)</span>
+      <span class="stat-label">external &harr; external<br>(router/ISP or IPv6)</span>
     </div>
   </div>
   {% if total_events == 0 %}
@@ -31,6 +31,14 @@
   {% else %}
     <p class="chip chip-ok">Confirmed: this add-on is seeing real traffic between devices on your own networks,
        not just incoming/outgoing WAN traffic.</p>
+  {% endif %}
+  {% if ee > 0 %}
+    <p class="hint">"External &harr; external" is usually mundane, not a red flag: your router's own WAN IP
+       making DNS queries to your ISP's resolvers looks this way (both sides are public IPs), and IPv6 makes
+       it more common still — home ISPs often hand out globally-routable IPv6 addresses directly, so your own
+       device's IPv6 address is legitimately "public" even though it's yours. Occasionally it's unsolicited
+       traffic hitting your WAN interface, which is normal background internet noise on any public IP. Check
+       the flow tables below if you want to see exactly what's in this bucket.</p>
   {% endif %}
 </section>
 
