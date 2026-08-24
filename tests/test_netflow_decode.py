@@ -159,3 +159,27 @@ def test_options_template_without_ip_fields_yields_no_records():
     record = _record(options_fields, SAMPLE_VALUES)
     flows = decode_packet(_v9_header(1) + _data_set(400, [record]), EXPORTER, templates)
     assert flows == []
+
+
+def _truncated_template_set() -> bytes:
+    # Claims 5 fields but only provides 1 field's worth of bytes afterward —
+    # this is exactly the shape that crashed netflow_receiver.py in
+    # production before the fix (UndecodableRecord went uncaught).
+    body = struct.pack(">HH", 256, 5) + struct.pack(">HH", 8, 4)
+    return struct.pack(">HH", 0, 4 + len(body)) + body
+
+
+def test_malformed_template_set_is_dropped_not_crashed():
+    templates = TemplateCache()
+    flows = decode_packet(_v9_header(0) + _truncated_template_set(), EXPORTER, templates)
+    assert flows == []
+    assert templates.get(EXPORTER, 256) is None  # never stored a template built from corrupt data
+
+
+def test_packet_keeps_processing_after_a_malformed_template_set():
+    templates = TemplateCache()
+    good_template_set = _template_set(300, FIELDS_V1, ipfix=False)
+    packet = _v9_header(0) + _truncated_template_set() + good_template_set
+
+    decode_packet(packet, EXPORTER, templates)
+    assert templates.get(EXPORTER, 300) is not None  # the good template right after it still lands

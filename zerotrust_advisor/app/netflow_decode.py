@@ -197,7 +197,16 @@ def decode_packet(
             version == 10 and set_id in (IPFIX_TEMPLATE_SET_ID, IPFIX_OPTIONS_TEMPLATE_SET_ID)
         )
         if is_template_set:
-            for template_id, template in _decode_template_set(body).items():
+            try:
+                new_templates = _decode_template_set(body)
+            except UndecodableRecord:
+                # A malformed template set is exactly as untrustworthy as a
+                # malformed data record — drop just this set, not the whole
+                # packet (or, previously, the whole receiver process: this
+                # was uncaught and crashed netflow_receiver.py in production).
+                offset += set_length
+                continue
+            for template_id, template in new_templates.items():
                 templates.put(exporter_ip, template_id, template)
         elif set_id >= 256:
             template = templates.get(exporter_ip, set_id)

@@ -14,11 +14,13 @@ import sqlite3
 import time
 
 from app.analysis.grouping import GroupableEvent, group_candidate_patterns
-from app.analysis.netlabels import label_for_ip, parse_network_labels
+from app.analysis.netlabels import NetworkLabel, label_for_ip, parse_network_labels
+from app.analysis.noise import is_own_receiver_traffic
 from app.config import Config, read_secret
 from app.llm.client import LLMError, chat_completion
 from app.llm.prompts import RECOMMENDATION_SCHEMA, build_recommendation_messages
 from app.sanitize.classify import Classification, classify
+from app.supervisor import get_host_ip
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,14 @@ def _identity_for_ip(conn: sqlite3.Connection, ip: str, network_label: str) -> C
     return classify(hostname=hostname, mac=mac, network_label=network_label)
 
 
-def _load_events(conn: sqlite3.Connection, labels: list[NetworkLabel], since: float) -> list[GroupableEvent]:
+def _load_events(
+    conn: sqlite3.Connection,
+    labels: list[NetworkLabel],
+    since: float,
+    host_ip: str | None,
+    syslog_port: int,
+    netflow_port: int,
+) -> list[GroupableEvent]:
     events: list[GroupableEvent] = []
 
     firewall_rows = conn.execute(
@@ -43,6 +52,11 @@ def _load_events(conn: sqlite3.Connection, labels: list[NetworkLabel], since: fl
         (since,),
     ).fetchall()
     for event_id, ts, src_ip, dst_ip, proto, dst_port, action in firewall_rows:
+        if is_own_receiver_traffic(dst_ip, dst_port, host_ip, syslog_port, netflow_port):
+            # The router logging its own log-forwarding traffic to this
+            # add-on's receiver — expected and intentional, not a
+            # segmentation decision worth a recommendation.
+            continue
         src_label = label_for_ip(src_ip, labels)
         dst_label = label_for_ip(dst_ip, labels)
         events.append(
@@ -84,7 +98,11 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     """Returns the number of new recommendations written."""
     now = now or time.time()
     labels = parse_network_labels(list(config.network_labels))
-    events = _load_events(conn, labels, since=now - _LOOKBACK_SECONDS)
+    host_ip = get_host_ip()
+    events = _load_events(
+        conn, labels, since=now - _LOOKBACK_SECONDS, host_ip=host_ip,
+        syslog_port=config.syslog_port, netflow_port=config.netflow_port,
+    )
     patterns = group_candidate_patterns(events, min_recurring_days=config.min_recurring_days)
 
     known_signatures = _existing_signatures(conn)

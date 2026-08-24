@@ -11,8 +11,8 @@ from app.analysis.coverage import CoverageInputs, evaluate_coverage
 from app.analysis.direction import INTERNAL_INTERNAL, classify_direction
 from app.analysis.netlabels import label_for_ip, parse_network_labels
 from app.health import read_health
+from app.supervisor import get_host_ip
 from app.web.db_context import get_db
-from app.web.supervisor import get_host_ip
 
 setup_bp = Blueprint("setup", __name__)
 
