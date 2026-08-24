@@ -81,7 +81,13 @@ CREATE TABLE IF NOT EXISTS recommendations (
     confidence TEXT,
     evidence_event_ids TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_recommendations_category ON recommendations(category);
+-- No index on `category` here: on a database that predates this column,
+-- CREATE TABLE IF NOT EXISTS is a no-op (the table already exists), so an
+-- index on a column that doesn't exist yet would fail this whole script
+-- before _apply_column_migrations() ever runs. Created in Python instead,
+-- after the migration below guarantees the column exists — confirmed live
+-- in production: this exact ordering crashed every service on first
+-- deploy of the category column.
 
 -- Optional friendly names for auto-discovered networks (see
 -- app/analysis/network_map.py). discovery_key is the stable identifier a
@@ -120,6 +126,11 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+    # Only safe to run once every migration above has applied — see the
+    # comment by the recommendations table in SCHEMA for why this can't
+    # just live in that script.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_recommendations_category ON recommendations(category)")
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
