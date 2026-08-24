@@ -115,3 +115,11 @@ fieldset textarea, fieldset select {
 }
 
 .hint { color: var(--muted); font-size: 0.85rem; }
+
+.host-ip {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 1.1rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}

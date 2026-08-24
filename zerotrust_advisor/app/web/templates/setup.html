@@ -51,18 +51,26 @@
 
 <section>
   <h3>Router-side setup (UniFi UDM Pro example)</h3>
+  {% if host_ip %}
+    <p>Point your router's syslog and NetFlow/IPFIX export at:
+       <strong class="host-ip">{{ host_ip }}</strong></p>
+  {% else %}
+    <p class="chip chip-warn">Couldn't determine this add-on's host IP automatically —
+       use whatever address you normally reach Home Assistant at.</p>
+  {% endif %}
   <p>Router firmware and menu layout drift over time — treat this as a starting point, not gospel.</p>
   <ol>
     <li>
       <strong>Firewall logging.</strong> On the rules you want visibility into (especially
-      inter-VLAN rules), enable per-rule logging and point syslog at this add-on's host on
-      UDP port <code>{{ config.syslog_port }}</code>.
+      inter-VLAN rules), enable per-rule logging and point syslog at
+      <code>{{ router_target_host }}:{{ config.syslog_port }}</code> (UDP).
     </li>
     <li>
       <strong>NetFlow/IPFIX export.</strong> Settings &rarr; CyberSecure &rarr; Traffic Logging
-      &rarr; enable NetFlow, pointed at UDP port <code>{{ config.netflow_port }}</code>. Note: on
-      hardware that offloads inter-VLAN routing, this will only ever show WAN-crossing traffic —
-      see the warning above if that applies to you.
+      &rarr; enable NetFlow, pointed at
+      <code>{{ router_target_host }}:{{ config.netflow_port }}</code> (UDP).
+      Note: on hardware that offloads inter-VLAN routing, this will only ever show
+      WAN-crossing traffic — see the warning above if that applies to you.
     </li>
     <li>
       Set <strong>Allowed source IPs</strong> in Settings to your router's IP, or messages will

@@ -11,6 +11,7 @@ from app.analysis.coverage import CoverageInputs, evaluate_coverage
 from app.analysis.netlabels import label_for_ip, parse_network_labels
 from app.health import read_health
 from app.web.db_context import get_db
+from app.web.supervisor import get_host_ip
 
 setup_bp = Blueprint("setup", __name__)
 
@@ -70,5 +71,14 @@ def setup_page():
     services = ["syslog", "netflow", "mdns"]
     health = {service: read_health(config.health_dir, service) for service in services}
     warnings = evaluate_coverage(_gather_coverage_inputs(conn, config, now))
+    host_ip = get_host_ip()
 
-    return render_template("setup.html", health=health, warnings=warnings, now=now, config=config)
+    return render_template(
+        "setup.html",
+        health=health,
+        warnings=warnings,
+        now=now,
+        config=config,
+        host_ip=host_ip,
+        router_target_host=host_ip or "this add-on's host",
+    )
