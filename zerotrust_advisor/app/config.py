@@ -30,6 +30,10 @@ DEFAULTS = {
     "llm_mode": "local",
     "llm_remote_base_url": "",
     "llm_model_path": "",
+    "unifi_enabled": False,
+    "unifi_host": "",
+    "unifi_verify_tls": False,
+    "unifi_apply_mode": "manual",
 }
 
 
@@ -46,6 +50,14 @@ class Config:
     llm_mode: str
     llm_remote_base_url: str
     llm_model_path: str
+    # Stage 2 (UniFi UDM-only, optional, off by default — see app/unifi/).
+    # unifi_apply_mode is Stage 3 prep: "manual" is the only mode with any
+    # real behavior today. "automatic" is stored and shown in Settings but
+    # nothing in this codebase acts on it yet — no write path exists.
+    unifi_enabled: bool
+    unifi_host: str
+    unifi_verify_tls: bool
+    unifi_apply_mode: str
 
     @property
     def db_path(self) -> Path:
@@ -76,6 +88,10 @@ def load_config() -> Config:
         llm_mode=str(raw["llm_mode"]),
         llm_remote_base_url=str(raw["llm_remote_base_url"]),
         llm_model_path=str(raw["llm_model_path"]),
+        unifi_enabled=bool(raw["unifi_enabled"]),
+        unifi_host=str(raw["unifi_host"]),
+        unifi_verify_tls=bool(raw["unifi_verify_tls"]),
+        unifi_apply_mode=str(raw["unifi_apply_mode"]),
     )
 
 

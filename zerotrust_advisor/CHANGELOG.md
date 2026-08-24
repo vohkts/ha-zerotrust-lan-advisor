@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- **Stage 2: optional, read-only UniFi UDM integration.** Off by default,
+  scoped to UniFi UDM consoles only, and built against the official
+  key-based Network Integration API (`/proxy/network/integration/v1`) —
+  never the older cookie-session "classic" API. Everything here is a GET;
+  nothing in this add-on writes to UniFi.
+  - Configured entirely from the **Settings** screen: console IP/hostname,
+    API key (stored the same way as the remote LLM key — `/data/secrets/`,
+    never the options store, never logged), and whether to verify the
+    console's TLS certificate (off by default, for a local UDM's
+    self-signed cert).
+  - **Test connection** button probes the key's actual capabilities live —
+    can it reach the console, authenticate, list sites, read devices,
+    clients, firewall zones, firewall policies — and shows exactly which
+    of those work and which don't, independently (an older Network
+    Application without zone-based firewalling can still be useful for
+    device/client visibility).
+  - A background sync (same schedule as the LLM analysis pass, plus a
+    manual "Refresh now") caches devices, clients, firewall zones and
+    policies locally, refreshed wholesale on each run.
+  - New **Network** screen: zones, firewall policies (with state/action/
+    logging), devices, and connected clients, straight from the cache
+    above. Only appears in the sidebar at all once the integration is
+    enabled and at least one capability has actually worked — every other
+    screen is unchanged if you don't use this.
+  - A new deterministic **Setup & Tuning** finding: an *enabled* UniFi
+    firewall policy with logging turned off. If it's matching real traffic,
+    that traffic never reaches this add-on's logs (or anywhere else
+    watching them) — silently. This is a configuration audit finding, not
+    proof the policy has matched anything.
+  - Reserved (not yet functional) setting for a future stage: whether
+    accepted zero-trust rules should eventually be written to UniFi
+    manually by you or automatically by the add-on. Selecting "automatic"
+    changes nothing today — there is no write path to UniFi anywhere in
+    this codebase yet.
+- A genuine visual redesign: sidebar navigation, card-based layout, and a
+  UniFi-dashboard-inspired dark theme (with a matching light palette) —
+  replacing the previous plain, unstyled look. No new dependencies; still
+  server-rendered Jinja2 + one small `app.js`, no build step.
+
 ## 0.2.0
 
 ### Added

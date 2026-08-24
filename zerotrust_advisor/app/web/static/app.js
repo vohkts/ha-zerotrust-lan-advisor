@@ -1,3 +1,12 @@
+// Highlights the current page in the sidebar. Done in JS rather than
+// passing an "active page" variable through every route/template: the last
+// path segment (Ingress prefix and all) already tells us which page this
+// is, matched against each nav link's own relative href.
+const currentSegment = window.location.pathname.split("/").filter(Boolean).pop();
+for (const link of document.querySelectorAll("nav [data-nav]")) {
+  if (link.getAttribute("href") === currentSegment) link.classList.add("active");
+}
+
 // Buttons with data-action post to that relative URL and reload on success.
 // Using fetch() rather than a normal form submit keeps the browser's
 // address bar on the current page — which matters under Ingress, where
@@ -33,6 +42,41 @@ document.addEventListener("click", async (event) => {
     if (statusEl) statusEl.textContent = "Something went wrong — check the add-on logs.";
   }
 });
+
+// UniFi "Test connection" — posts the fieldset's current values (not
+// necessarily saved yet) and renders per-capability results inline.
+// Deliberately its own handler, not a data-action button: those reload the
+// page on success, which would wipe out an API key the user just typed but
+// hasn't saved yet.
+const unifiTestBtn = document.getElementById("unifi-test-btn");
+if (unifiTestBtn) {
+  unifiTestBtn.addEventListener("click", async () => {
+    const resultEl = document.getElementById("unifi-test-result");
+    const fieldset = document.getElementById("unifi-fieldset");
+    unifiTestBtn.disabled = true;
+    resultEl.textContent = "Testing…";
+    resultEl.className = "unifi-test-result";
+
+    try {
+      const response = await fetch("settings/unifi/test", { method: "POST", body: new FormData(fieldset) });
+      const body = await response.json();
+      if (!response.ok) {
+        const messages = { missing_host: "Enter a console IP or hostname first.", missing_api_key: "Enter an API key first." };
+        resultEl.textContent = messages[body.error] || body.detail || "Connection test failed.";
+        resultEl.classList.add("unifi-test-fail");
+      } else {
+        const lines = body.capabilities.map((c) => `${c.ok ? "✓" : "✗"} ${c.label} — ${c.detail}`);
+        resultEl.textContent = lines.join("\n");
+        resultEl.classList.add(body.any_capability_ok ? "unifi-test-ok" : "unifi-test-fail");
+      }
+    } catch (err) {
+      resultEl.textContent = "Something went wrong — check the add-on logs.";
+      resultEl.classList.add("unifi-test-fail");
+    } finally {
+      unifiTestBtn.disabled = false;
+    }
+  });
+}
 
 // Client-side tab toggle (Zero-Trust Rules / Setup & Tuning) — no
 // navigation, so it can't run into the relative-URL depth issue a second

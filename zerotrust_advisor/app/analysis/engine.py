@@ -24,6 +24,7 @@ from app.llm.client import LLMError, chat_completion
 from app.llm.prompts import RECOMMENDATION_SCHEMA, build_recommendation_messages
 from app.sanitize.classify import Classification, classify
 from app.supervisor import get_host_ip
+from app.unifi.checks import generate_unifi_setup_findings
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,10 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     # in health.json) — runs first so it's never skipped by a slow or
     # unreachable LLM endpoint.
     setup_written = generate_setup_recommendations(conn, config, now=now)
+    # UniFi cache is only ever populated when the integration is enabled and
+    # working (see app/unifi/sync.py) — an empty unifi_policies table makes
+    # this a no-op, no config.unifi_enabled check needed here.
+    setup_written += generate_unifi_setup_findings(conn, now=now)
 
     since = now - _LOOKBACK_SECONDS
     manual_labels = parse_network_labels(list(config.network_labels))

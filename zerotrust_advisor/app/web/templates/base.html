@@ -11,18 +11,24 @@
   <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
-  <header>
-    <h1>Zero-Trust LAN Advisor</h1>
-    <nav>
-      <a href="setup">Setup</a>
-      <a href="traffic">Traffic</a>
-      <a href="recommendations">Recommendations</a>
-      <a href="settings">Settings</a>
-    </nav>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">ZT</span>
+        <span class="brand-name">Zero-Trust<br>LAN Advisor</span>
+      </div>
+      <nav>
+        <a href="setup" data-nav="setup">Setup</a>
+        <a href="traffic" data-nav="traffic">Traffic</a>
+        <a href="recommendations" data-nav="recommendations">Recommendations</a>
+        {% if show_network_nav %}<a href="network" data-nav="network">Network</a>{% endif %}
+        <a href="settings" data-nav="settings">Settings</a>
+      </nav>
+    </aside>
+    <div class="main">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
   <script src="static/app.js"></script>
 </body>
 </html>

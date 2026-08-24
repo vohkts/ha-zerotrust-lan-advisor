@@ -84,6 +84,61 @@ recommendations by default (**Settings → "Ignore traffic to this add-on's
 own receiver"**). That's expected, intentional traffic, not a segmentation
 decision.
 
+## Stage 2: UniFi UDM integration (optional, read-only)
+
+Off by default, and only relevant if your router is a UniFi UDM. When
+enabled, this add-on reads your UDM's own view of its network — devices,
+connected clients, firewall zones, firewall policies — over the official,
+key-based **Network Integration API**
+(`https://<console>/proxy/network/integration/v1`). It deliberately does
+**not** use the older cookie-session "classic" API that UniFi's own web UI
+uses, even though that one exposes more (full VLAN CRUD, legacy firewall
+rules, port forwards): the integration API is narrower but stays within a
+clean, official, credential-light model — an API key, not your UniFi
+account's username and password. Nothing in this add-on writes to UniFi,
+regardless of any setting below.
+
+**Setup**, all from the Settings screen:
+
+1. In UniFi's own UI, create a Network Integration API key (Network
+   Application → Settings → Control Plane → Integrations, or similar —
+   this menu path moves between versions).
+2. Enter your console's IP or hostname and the key in this add-on's
+   Settings screen, under "UniFi integration". Leave "Verify TLS
+   certificate" off unless your console has a certificate your system
+   already trusts — a local UDM's default certificate is self-signed.
+3. Click **Test connection**. This checks the key live, right there,
+   against a fixed set of read-only calls — reach the console, authenticate,
+   list sites, read devices, read clients, read firewall zones, read
+   firewall policies — and shows exactly which succeeded. Firewall
+   zones/policies need a newer Network Application version (roughly
+   10.0.162+); everything else works on far older ones. A key missing
+   firewall access can still be useful for device/client visibility, so
+   each capability is reported independently, not as one pass/fail answer.
+4. Save. Enabling the checkbox is what turns on the background sync — a
+   handful of cheap GETs on the same schedule as the LLM analysis pass
+   (plus a manual "Refresh now" on the new **Network** screen).
+
+Once at least one capability has worked, a **Network** screen appears in
+the sidebar showing the cached zones, policies, devices, and clients. It
+only appears at all under that condition — every other screen in this
+add-on is unchanged whether or not you use this.
+
+**What it adds to Recommendations**: an enabled UniFi firewall policy with
+logging turned off gets flagged under **Setup & Tuning**. If that policy is
+matching real traffic, this add-on (and anything else watching your
+syslog feed) never sees it happen — silently. This is an audit finding
+about the policy's configuration, not proof it has actually matched
+anything; the API doesn't expose per-policy match evidence, only the
+policy's own settings.
+
+**Firewall rule apply mode** — reserved, not yet functional. A future
+stage may let this add-on write accepted zero-trust rules back to UniFi
+automatically instead of you doing it by hand; the setting exists now so
+it's visible where the rest of the UniFi settings live, but selecting
+"automatic" changes nothing today. There is no code path anywhere in this
+add-on that writes to UniFi.
+
 ## Settings reference
 
 All settings are edited from this add-on's own Settings screen (which also
@@ -103,6 +158,10 @@ immediately, but the already-running process doesn't pick it up live.
 | Enable mDNS listening | Passive mDNS for better device classification (real hostnames instead of vendor/IP fallback). Requires host networking, which is the *only* reason this add-on would ever need it — left off by default since it's a real network-isolation trade-off, not because it doesn't work. |
 | LLM mode | Local (bundled `llama-server`, runs on your own hardware) or Remote (any OpenAI-compatible endpoint). One code path handles both — just a different base URL and key. |
 | Remote base URL / API key | Only used in Remote mode. The key is written to `/data/secrets/`, never to the options store, never logged. |
+| Enable UniFi integration | Off by default. See "Stage 2: UniFi UDM integration" above. |
+| UniFi console IP / API key | The key is written to `/data/secrets/`, same as the remote LLM key. |
+| Verify UniFi console TLS certificate | Off by default, for a local UDM's self-signed certificate. |
+| Firewall rule apply mode | Reserved for a future stage — not yet functional either way. |
 
 ## Privacy, if you use a remote LLM endpoint
 
@@ -113,12 +172,13 @@ labels, never real IPs, MACs, or hostnames. Tokens are derived with
 HMAC-SHA256 from a per-install random salt, so the token alone (without
 the salt file) can't be reversed back to a real address.
 
-## Known limitations (Stage 1)
+## Known limitations
 
-- Network discovery only sees what firewall/flow logs show it — it has no
-  authoritative view of your router's actual configuration. That's Stage
-  2's job (a future, optional, read-only connection to your router's own
-  API), not built yet.
+- Network discovery from traffic alone has no authoritative view of your
+  router's actual configuration (VLAN names, real subnet masks, which
+  zone a network belongs to) — the UniFi integration above adds that, but
+  only for UniFi UDM consoles, and only what the console's Integration API
+  actually exposes.
 - No write access exists anywhere in this add-on. Applying an approved
   recommendation is a manual step you do on your router; a future,
   entirely optional Stage 3 might change that, but only with explicit,

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Network</h2>
+
+{% if not available %}
+  {% if not unifi_enabled %}
+  <p class="hint">Not set up. This page shows your UniFi UDM's own view of your network — zones, firewall
+     policies, devices, connected clients — and cross-references it against what this add-on observes.
+     Enable the UniFi integration and test a connection from the <a href="settings">Settings</a> screen to
+     turn this on.</p>
+  {% else %}
+  <p class="chip chip-warn">UniFi integration is enabled but not currently working — no capability has
+     succeeded yet.</p>
+  <p class="hint">Check the API key and console address on the <a href="settings">Settings</a> screen and
+     use "Test connection" there to see exactly what's failing.</p>
+  {% endif %}
+{% else %}
+
+<p class="hint">
+  Read-only, from your UDM's Network Application — synced on the same schedule as the LLM analysis pass, or
+  on demand below. Nothing on this page is ever written back to UniFi.
+  {% if probe %}Last synced {{ probe.checked_at | fmt_time }}.{% endif %}
+</p>
+<p><button data-action="network/refresh" id="unifi-refresh-now">Refresh now</button></p>
+
+{% if logging_off_count > 0 %}
+<p class="chip chip-warn">{{ logging_off_count }} active polic{{ 'y has' if logging_off_count == 1 else 'ies have' }}
+   logging disabled — see the <a href="recommendations">Setup &amp; Tuning</a> tab for detail.</p>
+{% endif %}
+
+<section>
+  <h3>Firewall zones ({{ zones | length }})</h3>
+  {% if not zones %}
+    <p class="hint">None reported, or this key can't read them.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Zone</th></tr></thead>
+    <tbody>
+      {% for z in zones %}
+      <tr><td>{{ z.name }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Firewall policies ({{ policies | length }})</h3>
+  {% if not policies %}
+    <p class="hint">None reported, or this key can't read them.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Policy</th><th>State</th><th>Action</th><th>Zones</th><th>Protocol</th><th>Logging</th></tr></thead>
+    <tbody>
+      {% for p in policies %}
+      <tr>
+        <td>{{ p.name }}</td>
+        <td>{% if p.enabled %}<span class="chip chip-ok">enabled</span>{% else %}<span class="hint">disabled</span>{% endif %}</td>
+        <td>{{ p.action or "—" }}</td>
+        <td>{{ p.source_zone }} &rarr; {{ p.destination_zone }}</td>
+        <td>{{ p.protocol or "any" }}</td>
+        <td>
+          {% if p.logging_enabled is none %}<span class="hint">unknown</span>
+          {% elif p.logging_enabled %}<span class="chip chip-ok">on</span>
+          {% elif p.enabled %}<span class="chip chip-warn">off</span>
+          {% else %}<span class="hint">off</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Devices ({{ devices | length }})</h3>
+  {% if not devices %}
+    <p class="hint">None reported, or this key can't read them.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Name</th><th>Model</th><th>IP</th><th>MAC</th><th>State</th></tr></thead>
+    <tbody>
+      {% for d in devices %}
+      <tr>
+        <td>{{ d.name or "—" }}</td>
+        <td>{{ d.model or "—" }}</td>
+        <td>{{ d.ip or "—" }}</td>
+        <td>{{ d.mac or "—" }}</td>
+        <td>{{ d.state or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Connected clients ({{ clients | length }})</h3>
+  {% if not clients %}
+    <p class="hint">None reported, or this key can't read them.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Name</th><th>IP</th><th>MAC</th></tr></thead>
+    <tbody>
+      {% for c in clients %}
+      <tr>
+        <td>{{ c.name or "—" }}</td>
+        <td>{{ c.ip or "—" }}</td>
+        <td>{{ c.mac or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endif %}
+{% endblock %}

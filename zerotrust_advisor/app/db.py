@@ -100,6 +100,63 @@ CREATE TABLE IF NOT EXISTS network_names (
     friendly_name TEXT NOT NULL
 );
 
+-- Stage 2 (UniFi-only, optional, read-only — see app/unifi/). One row,
+-- replaced on every probe: the most recent answer to "what can this API
+-- key actually do."
+CREATE TABLE IF NOT EXISTS unifi_capability_report (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at REAL NOT NULL,
+    reachable INTEGER NOT NULL,
+    site_id TEXT,
+    capabilities_json TEXT NOT NULL
+);
+
+-- Cached, read-only mirrors of UniFi API data, refreshed wholesale (not
+-- diffed) on each sync — small collections on any home network, not worth
+-- the complexity of incremental updates.
+CREATE TABLE IF NOT EXISTS unifi_devices (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    model TEXT,
+    mac TEXT,
+    ip TEXT,
+    state TEXT,
+    raw_json TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS unifi_clients (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    mac TEXT,
+    ip TEXT,
+    network_id TEXT,
+    raw_json TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS unifi_zones (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    raw_json TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+
+-- logging_enabled: NULL means "couldn't tell" (see client.py's field-name
+-- fallback), not "logging is off" — keep that distinction, don't coerce.
+CREATE TABLE IF NOT EXISTS unifi_policies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL,
+    action TEXT,
+    protocol TEXT,
+    source_zone_id TEXT,
+    destination_zone_id TEXT,
+    logging_enabled INTEGER,
+    raw_json TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS coverage_status (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     checked_at REAL NOT NULL,

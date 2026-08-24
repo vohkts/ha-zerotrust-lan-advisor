@@ -41,6 +41,10 @@ def _config(**overrides):
         llm_mode="local",
         llm_remote_base_url="",
         llm_model_path="",
+        unifi_enabled=False,
+        unifi_host="",
+        unifi_verify_tls=False,
+        unifi_apply_mode="manual",
     )
     base.update(overrides)
     return Config(**base)

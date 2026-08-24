@@ -34,13 +34,20 @@ Assistant and decide what to do with it.
   offload inter-VLAN routing, which means flow export tools like NetFlow
   never see that traffic at all — the add-on watches for that gap and
   tells you specifically what to turn on to close it.
+- **Optional, read-only UniFi UDM integration.** If your router is a UniFi
+  UDM, point this add-on at your console's official Integration API key
+  and it'll cross-reference your router's own firewall zones/policies
+  against what it observes — e.g. flagging an active policy with logging
+  disabled, which silently hides whatever traffic it matches. Off by
+  default; the add-on works fully without it.
 
 ## Status
 
-Stage 1 is built and running. Proof-of-concept target is a UniFi UDM Pro,
-though the parsing is intentionally tolerant rather than hard-coded to one
-router. See [`zerotrust_advisor/DOCS.md`](zerotrust_advisor/DOCS.md) for
-setup and [`zerotrust_advisor/CHANGELOG.md`](zerotrust_advisor/CHANGELOG.md)
+Stage 1 and Stage 2 are built and running. Proof-of-concept target is a
+UniFi UDM Pro, though the passive log parsing is intentionally tolerant
+rather than hard-coded to one router; the Stage 2 API integration is UniFi
+UDM-only by design. See [`zerotrust_advisor/DOCS.md`](zerotrust_advisor/DOCS.md)
+for setup and [`zerotrust_advisor/CHANGELOG.md`](zerotrust_advisor/CHANGELOG.md)
 for what's landed so far.
 
 ## Installation
@@ -52,11 +59,12 @@ for what's landed so far.
 
 ## Roadmap
 
-This is stage one of three. Stage two adds optional read-only access to
-your router's own API for richer device/network context. Stage three,
-entirely optional, lets the add-on apply an approved rule for you instead
-of you doing it by hand. Neither exists yet, and stage one is fully useful
-without them.
+Three stages. Stage one (passive log analysis) and stage two (optional,
+read-only UniFi UDM integration) are both built. Stage three, entirely
+optional and off by default even once it exists, would let the add-on
+apply an approved rule for you instead of you doing it by hand — not built
+yet; a setting for it already exists in Settings, clearly labeled as not
+yet functional, but nothing in this codebase writes to your router.
 
 ## Contributing
 

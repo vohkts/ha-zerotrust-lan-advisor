@@ -74,6 +74,63 @@
     </p>
   </fieldset>
 
+  <fieldset id="unifi-fieldset">
+    <legend>UniFi integration (UDM only) &mdash; optional</legend>
+    <p class="hint">
+      Read-only by default. When enabled, this add-on reads devices, clients, firewall zones and
+      policies from your UDM's Network Application over its official, key-based Integration API
+      &mdash; never the classic username/password API &mdash; and uses them to enrich recommendations
+      and flag configuration issues like the one below. Nothing is ever written back to UniFi from
+      this add-on today, regardless of the apply-mode setting further down.
+    </p>
+    <label>
+      <input type="checkbox" name="unifi_enabled" id="unifi_enabled" {% if config.unifi_enabled %}checked{% endif %}>
+      Enable UniFi integration
+    </label>
+    <label>Console IP or hostname
+      <input type="text" name="unifi_host" id="unifi_host" placeholder="192.168.1.1" value="{{ config.unifi_host }}">
+    </label>
+    <label>API key {% if unifi_has_key %}<span class="hint">(one is already saved &mdash; leave blank to keep it)</span>{% endif %}
+      <input type="password" name="unifi_api_key" id="unifi_api_key" autocomplete="off">
+    </label>
+    <label>
+      <input type="checkbox" name="unifi_verify_tls" id="unifi_verify_tls" {% if config.unifi_verify_tls %}checked{% endif %}>
+      Verify the console's TLS certificate (leave off for a local UDM's self-signed cert)
+    </label>
+
+    <button type="button" id="unifi-test-btn">Test connection</button>
+    <div id="unifi-test-result" class="unifi-test-result" aria-live="polite"></div>
+
+    {% if unifi_last_probe %}
+    <p class="hint">Last sync: {{ unifi_last_probe.checked_at | fmt_time }} &mdash;
+      {% if unifi_last_probe.any_capability_ok %}
+        <span class="chip chip-ok">working</span>
+      {% else %}
+        <span class="chip chip-warn">not working</span>
+      {% endif %}
+    </p>
+    <ul class="capability-list">
+      {% for c in unifi_last_probe.capabilities %}
+      <li class="{% if c.ok %}capability-ok{% else %}capability-fail{% endif %}">
+        <span class="capability-dot"></span> {{ c.label }} &mdash; <span class="hint">{{ c.detail }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <label>Firewall rule apply mode
+      <select name="unifi_apply_mode">
+        <option value="manual" {% if config.unifi_apply_mode == 'manual' %}selected{% endif %}>I'll write rules myself &mdash; the add-on only recommends</option>
+        <option value="automatic" {% if config.unifi_apply_mode == 'automatic' %}selected{% endif %}>Let the add-on write accepted rules to UniFi</option>
+      </select>
+    </label>
+    <p class="hint">
+      <strong>Not yet functional.</strong> This is reserved for a future stage — whichever option is
+      selected, this add-on never writes anything to UniFi today. Recommendations only ever reach
+      "accepted" in this add-on's own local bookkeeping.
+    </p>
+  </fieldset>
+
   <button type="submit">Save</button>
 </form>
 {% endblock %}

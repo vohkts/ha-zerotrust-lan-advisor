@@ -1,5 +1,5 @@
 name: Zero-Trust LAN Advisor
-version: "0.2.0"
+version: "0.3.0"
 slug: zerotrust_advisor
 description: Passive firewall/flow log analysis with LLM-assisted zero-trust rule recommendations
 url: https://github.com/vohkts/ha-zerotrust-lan-advisor
@@ -36,6 +36,10 @@ options:
   llm_mode: local
   llm_remote_base_url: ""
   llm_model_path: ""
+  unifi_enabled: false
+  unifi_host: ""
+  unifi_verify_tls: false
+  unifi_apply_mode: manual
 schema:
   syslog_port: port
   netflow_port: port
@@ -50,3 +54,7 @@ schema:
   llm_mode: list(local|remote)
   llm_remote_base_url: str
   llm_model_path: str
+  unifi_enabled: bool
+  unifi_host: str
+  unifi_verify_tls: bool
+  unifi_apply_mode: list(manual|automatic)

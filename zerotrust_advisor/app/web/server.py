@@ -9,13 +9,14 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from flask import Flask, redirect
+from flask import Flask, current_app, redirect
 from waitress import serve
 
 from app.analysis.runner import run_analysis_now
 from app.config import Config, load_config
 from app.db import connect
-from app.web.db_context import close_db
+from app.web.db_context import close_db, get_db
+from app.web.routes_network import network_bp, unifi_available
 from app.web.routes_recommendations import recommendations_bp
 from app.web.routes_settings import settings_bp
 from app.web.routes_setup import setup_bp
@@ -41,9 +42,18 @@ def create_app() -> Flask:
     app.register_blueprint(traffic_bp)
     app.register_blueprint(recommendations_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(network_bp)
 
     app.teardown_appcontext(close_db)
     app.jinja_env.filters["fmt_time"] = _format_timestamp
+
+    @app.context_processor
+    def inject_nav_flags():
+        # Drives whether base.html shows the "Network" nav link at all — the
+        # rest of the UI stays exactly as it is today unless UniFi is both
+        # enabled and demonstrably working (see routes_network.py).
+        config = current_app.config["ZTA_CONFIG"]
+        return {"show_network_nav": unifi_available(config, get_db())}
 
     @app.route("/")
     def index():
