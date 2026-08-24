@@ -12,6 +12,7 @@ import signal
 import socket
 import time
 
+from app.analysis.noise_categories import CATEGORY_KEYS, classify_unparsed_line
 from app.config import load_config
 from app.db import connect, prune
 from app.firewall_parse import UnparsableLine, parse_firewall_line
@@ -51,6 +52,7 @@ def main() -> None:
         parsed=previous.get("parsed", 0),
         unparsed=previous.get("unparsed", 0),
         last_event_at=previous.get("last_event_at"),
+        **{f"noise_{key}": previous.get(f"noise_{key}", 0) for key in CATEGORY_KEYS},
     )
 
     last_prune = time.time()
@@ -73,6 +75,12 @@ def main() -> None:
             event = parse_firewall_line(line)
         except UnparsableLine:
             health.increment("unparsed")
+            category = classify_unparsed_line(line)
+            if category:
+                # Counted by category, never the line itself — this is
+                # what lets a setup recommendation later say *which* router
+                # logging option is worth turning down.
+                health.increment(f"noise_{category}")
             continue
 
         now = time.time()

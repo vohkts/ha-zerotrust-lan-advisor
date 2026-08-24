@@ -23,6 +23,7 @@ options:
   network_labels: []
   retention_days: 90
   min_recurring_days: 3
+  ignore_own_receiver_traffic: true
   enable_mdns_classification: false
   llm_mode: local
   llm_remote_base_url: ""
@@ -36,6 +37,7 @@ schema:
     - match(^.+=.+$)
   retention_days: int(7,365)
   min_recurring_days: int(1,30)
+  ignore_own_receiver_traffic: bool
   enable_mdns_classification: bool
   llm_mode: list(local|remote)
   llm_remote_base_url: str

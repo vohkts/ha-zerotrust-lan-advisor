@@ -25,6 +25,7 @@ DEFAULTS = {
     "network_labels": [],
     "retention_days": 90,
     "min_recurring_days": 3,
+    "ignore_own_receiver_traffic": True,
     "enable_mdns_classification": False,
     "llm_mode": "local",
     "llm_remote_base_url": "",
@@ -40,6 +41,7 @@ class Config:
     network_labels: tuple[str, ...]
     retention_days: int
     min_recurring_days: int
+    ignore_own_receiver_traffic: bool
     enable_mdns_classification: bool
     llm_mode: str
     llm_remote_base_url: str
@@ -69,6 +71,7 @@ def load_config() -> Config:
         network_labels=tuple(raw["network_labels"]),
         retention_days=int(raw["retention_days"]),
         min_recurring_days=int(raw["min_recurring_days"]),
+        ignore_own_receiver_traffic=bool(raw["ignore_own_receiver_traffic"]),
         enable_mdns_classification=bool(raw["enable_mdns_classification"]),
         llm_mode=str(raw["llm_mode"]),
         llm_remote_base_url=str(raw["llm_remote_base_url"]),

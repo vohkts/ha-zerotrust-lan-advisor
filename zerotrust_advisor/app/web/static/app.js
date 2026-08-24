@@ -25,11 +25,26 @@ document.addEventListener("click", async (event) => {
       statusEl.textContent =
         body.status === "already_running"
           ? "An analysis pass is already running."
-          : `Done — ${body.new_recommendations} new recommendation(s).`;
+          : `Done — ${body.new_recommendations} new recommendation(s), ${body.new_setup_findings} new setup finding(s).`;
     }
     window.location.reload();
   } catch (err) {
     button.disabled = false;
     if (statusEl) statusEl.textContent = "Something went wrong — check the add-on logs.";
+  }
+});
+
+// Client-side tab toggle (Zero-Trust Rules / Setup & Tuning) — no
+// navigation, so it can't run into the relative-URL depth issue a second
+// route at /recommendations/setup would (see routes_recommendations.py).
+document.addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-tab]");
+  if (!toggle) return;
+
+  for (const el of document.querySelectorAll("[data-tab].tab-toggle")) {
+    el.classList.toggle("active", el === toggle);
+  }
+  for (const panel of document.querySelectorAll("[data-tab-panel]")) {
+    panel.hidden = panel.dataset.tabPanel !== toggle.dataset.tab;
   }
 });

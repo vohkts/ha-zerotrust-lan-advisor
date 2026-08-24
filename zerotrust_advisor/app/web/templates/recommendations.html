@@ -5,33 +5,73 @@
 <button id="run-now" type="button" data-action="recommendations/run-now">Run analysis now</button>
 <p id="run-now-status" class="hint"></p>
 
-{% if not items %}
-  <p>Nothing yet. Recommendations show up here once the same traffic pattern has recurred
-     across enough distinct days — see the Setup screen to check what's being collected.</p>
-{% endif %}
+<div class="tabs">
+  <button type="button" class="tab-toggle active" data-tab="zero_trust">
+    Zero-Trust Rules {% if zero_trust_items %}({{ zero_trust_items | length }}){% endif %}
+  </button>
+  <button type="button" class="tab-toggle" data-tab="setup">
+    Setup &amp; Tuning {% if setup_items %}({{ setup_items | length }}){% endif %}
+  </button>
+</div>
 
-{% for item in items %}
-<article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
-  <header>
-    <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
-    <span class="status">{{ item.status }}</span>
-    <time>{{ item.created_at | fmt_time }}</time>
-  </header>
-  <p class="summary">{{ item.summary }}</p>
-  <dl>
-    <dt>Likely purpose</dt><dd>{{ item.structured.likely_purpose }}</dd>
-    <dt>Suggested rule scope</dt><dd>{{ item.structured.suggested_rule_scope }}</dd>
-    {% if item.structured.caveats %}
-    <dt>Caveats</dt>
-    <dd><ul>{% for c in item.structured.caveats %}<li>{{ c }}</li>{% endfor %}</ul></dd>
-    {% endif %}
-  </dl>
-  {% if item.status == 'pending' %}
-  <div class="actions">
-    <button type="button" class="accept" data-action="recommendations/{{ item.id }}/accept">Accept</button>
-    <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/dismiss">Dismiss</button>
-  </div>
+<div class="tab-panel" data-tab-panel="zero_trust">
+  <p class="hint">Real segmentation decisions — a specific firewall allow rule to consider, based on
+     recurring traffic between two devices.</p>
+  {% if not zero_trust_items %}
+    <p>Nothing yet. Recommendations show up here once the same traffic pattern has recurred
+       across enough distinct days — see the Setup screen to check what's being collected.</p>
   {% endif %}
-</article>
-{% endfor %}
+  {% for item in zero_trust_items %}
+  <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
+    <header>
+      <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
+      <span class="status">{{ item.status }}</span>
+      <time>{{ item.created_at | fmt_time }}</time>
+    </header>
+    <p class="summary">{{ item.summary }}</p>
+    <dl>
+      <dt>Likely purpose</dt><dd>{{ item.structured.likely_purpose }}</dd>
+      <dt>Suggested rule scope</dt><dd>{{ item.structured.suggested_rule_scope }}</dd>
+      {% if item.structured.caveats %}
+      <dt>Caveats</dt>
+      <dd><ul>{% for c in item.structured.caveats %}<li>{{ c }}</li>{% endfor %}</ul></dd>
+      {% endif %}
+    </dl>
+    {% if item.status == 'pending' %}
+    <div class="actions">
+      <button type="button" class="accept" data-action="recommendations/{{ item.id }}/accept">Accept</button>
+      <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/dismiss">Dismiss</button>
+    </div>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+
+<div class="tab-panel" data-tab-panel="setup" hidden>
+  <p class="hint">How to make this add-on's own view of your network more accurate — logging noise worth
+     turning down, or gaps worth closing. Deterministic, not LLM-generated; these don't touch your firewall.</p>
+  {% if not setup_items %}
+    <p>Nothing found yet. Also check the Setup screen's live coverage checks — those catch gaps
+       (e.g. "no NetFlow data yet") that don't get a persisted entry here.</p>
+  {% endif %}
+  {% for item in setup_items %}
+  <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
+    <header>
+      <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
+      <span class="status">{{ item.status }}</span>
+      <time>{{ item.created_at | fmt_time }}</time>
+    </header>
+    <p class="summary">{{ item.summary }}</p>
+    {% if item.structured.caveats %}
+    <dl><dt>Caveats</dt><dd><ul>{% for c in item.structured.caveats %}<li>{{ c }}</li>{% endfor %}</ul></dd></dl>
+    {% endif %}
+    {% if item.status == 'pending' %}
+    <div class="actions">
+      <button type="button" class="accept" data-action="recommendations/{{ item.id }}/accept">Done, dismiss</button>
+      <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/dismiss">Not relevant</button>
+    </div>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
 {% endblock %}

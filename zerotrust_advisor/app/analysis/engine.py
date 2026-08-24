@@ -12,11 +12,13 @@ import json
 import logging
 import sqlite3
 import time
+from dataclasses import dataclass
 
 from app.analysis.grouping import GroupableEvent, group_candidate_patterns
 from app.analysis.netlabels import parse_network_labels
 from app.analysis.network_map import NetworkMap, build_network_map, load_friendly_names, resolve_label
 from app.analysis.noise import is_own_receiver_traffic
+from app.analysis.setup_recommendations import generate_setup_recommendations
 from app.config import Config, read_secret
 from app.llm.client import LLMError, chat_completion
 from app.llm.prompts import RECOMMENDATION_SCHEMA, build_recommendation_messages
@@ -47,6 +49,7 @@ def _load_events(
     host_ip: str | None,
     syslog_port: int,
     netflow_port: int,
+    ignore_own_receiver_traffic: bool,
 ) -> list[GroupableEvent]:
     events: list[GroupableEvent] = []
 
@@ -55,7 +58,9 @@ def _load_events(
         (since,),
     ).fetchall()
     for event_id, ts, src_ip, dst_ip, proto, dst_port, action in firewall_rows:
-        if is_own_receiver_traffic(dst_ip, dst_port, host_ip, syslog_port, netflow_port):
+        if ignore_own_receiver_traffic and is_own_receiver_traffic(
+            dst_ip, dst_port, host_ip, syslog_port, netflow_port
+        ):
             # The router logging its own log-forwarding traffic to this
             # add-on's receiver — expected and intentional, not a
             # segmentation decision worth a recommendation.
@@ -84,6 +89,35 @@ def _existing_signatures(conn: sqlite3.Connection) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _purge_stale_receiver_recommendations(conn: sqlite3.Connection, config: Config, host_ip: str | None) -> int:
+    """A zero-trust recommendation whose destination is exactly this
+    add-on's own receiver can already exist from before
+    ignore_own_receiver_traffic was introduced (or from a run where it was
+    off) — found live in production as the single highest-volume
+    "recommendation" ever generated. It would otherwise sit "pending"
+    forever, since recommendations are never re-evaluated once written.
+    Matches only on the pattern's exact destination label + port (UDP-only,
+    the only protocol either receiver listens on), not a broad port-only
+    match — a coincidental, unrelated flow on the same port number that
+    wasn't actually headed to this host must not get swept up too."""
+    if not config.ignore_own_receiver_traffic or host_ip is None:
+        return 0
+
+    removed = 0
+    rows = conn.execute("SELECT id, pattern_signature FROM recommendations WHERE category = 'zero_trust'").fetchall()
+    for rec_id, signature in rows:
+        parts = signature.split("|")
+        if len(parts) != 6:
+            continue
+        _src_label, dst_label, _src_class, _dst_class, proto, port = parts
+        if dst_label == host_ip and proto == "17" and port in (str(config.syslog_port), str(config.netflow_port)):
+            conn.execute("DELETE FROM recommendations WHERE id = ?", (rec_id,))
+            removed += 1
+    if removed:
+        conn.commit()
+    return removed
+
+
 def _confidence_for(conn: sqlite3.Connection, device_class: str) -> str:
     row = conn.execute(
         "SELECT class_confidence FROM identities WHERE device_class = ? LIMIT 1", (device_class,)
@@ -97,17 +131,30 @@ def _llm_base_url(config: Config) -> tuple[str, str | None]:
     return "http://127.0.0.1:8080/v1", None
 
 
-def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | None = None) -> int:
-    """Returns the number of new recommendations written."""
+@dataclass(frozen=True)
+class AnalysisPassResult:
+    zero_trust_written: int
+    setup_written: int
+
+
+def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | None = None) -> AnalysisPassResult:
     now = now or time.time()
+
+    # Deterministic and cheap (no LLM, no event scan beyond what's already
+    # in health.json) — runs first so it's never skipped by a slow or
+    # unreachable LLM endpoint.
+    setup_written = generate_setup_recommendations(conn, config, now=now)
+
     since = now - _LOOKBACK_SECONDS
     manual_labels = parse_network_labels(list(config.network_labels))
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)
     host_ip = get_host_ip()
+    _purge_stale_receiver_recommendations(conn, config, host_ip)
     events = _load_events(
         conn, network_map, friendly_names, manual_labels, since=since, host_ip=host_ip,
         syslog_port=config.syslog_port, netflow_port=config.netflow_port,
+        ignore_own_receiver_traffic=config.ignore_own_receiver_traffic,
     )
     patterns = group_candidate_patterns(events, min_recurring_days=config.min_recurring_days)
 
@@ -131,9 +178,9 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
 
         conn.execute(
             """INSERT INTO recommendations
-               (created_at, status, pattern_signature, pattern_summary_text, structured_json,
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
                 llm_model_used, confidence, evidence_event_ids)
-               VALUES (?, 'pending', ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, 'pending', 'zero_trust', ?, ?, ?, ?, ?, ?)""",
             (
                 now,
                 pattern.signature,
@@ -151,4 +198,4 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
         conn.commit()
         written += 1
 
-    return written
+    return AnalysisPassResult(zero_trust_written=written, setup_written=setup_written)

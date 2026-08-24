@@ -64,10 +64,16 @@ CREATE TABLE IF NOT EXISTS pseudonym_map (
     kind TEXT NOT NULL
 );
 
+-- category distinguishes real zero-trust firewall-rule suggestions
+-- ("zero_trust", LLM-derived from traffic patterns) from observability
+-- tuning findings ("setup", deterministic — noise to reduce, gaps to fix;
+-- see app/analysis/setup_recommendations.py). Kept in one table since both
+-- share the same review/dismiss workflow; the UI splits them into tabs.
 CREATE TABLE IF NOT EXISTS recommendations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at REAL NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
+    category TEXT NOT NULL DEFAULT 'zero_trust',
     pattern_signature TEXT NOT NULL UNIQUE,
     pattern_summary_text TEXT NOT NULL,
     structured_json TEXT NOT NULL,
@@ -75,6 +81,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
     confidence TEXT,
     evidence_event_ids TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_recommendations_category ON recommendations(category);
 
 -- Optional friendly names for auto-discovered networks (see
 -- app/analysis/network_map.py). discovery_key is the stable identifier a
@@ -99,6 +106,21 @@ CREATE TABLE IF NOT EXISTS coverage_status (
 );
 """
 
+# (table, column, DDL for the new column) — CREATE TABLE IF NOT EXISTS above
+# only creates a table from scratch; a column added to an existing table's
+# definition needs its own ALTER TABLE, applied once, for every database
+# that predates the column.
+_COLUMN_MIGRATIONS = [
+    ("recommendations", "category", "TEXT NOT NULL DEFAULT 'zero_trust'"),
+]
+
+
+def _apply_column_migrations(conn: sqlite3.Connection) -> None:
+    for table, column, ddl in _COLUMN_MIGRATIONS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
 
 def connect(db_path: Path) -> sqlite3.Connection:
     """Every service (syslog/netflow/mDNS receivers, the web process) opens
@@ -118,6 +140,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     for attempt in range(5):
         try:
             conn.executescript(SCHEMA)
+            _apply_column_migrations(conn)
             conn.commit()
             break
         except sqlite3.OperationalError:

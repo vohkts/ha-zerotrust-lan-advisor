@@ -3,7 +3,8 @@
 <h2>Settings</h2>
 
 {% if saved %}
-<p class="chip chip-ok">Saved. Port, allow-list, or mDNS changes need an add-on restart to take effect.</p>
+<p class="chip chip-ok">Saved — every change here needs an add-on restart to actually take effect
+   (Settings &rarr; Add-ons &rarr; this add-on &rarr; Restart).</p>
 {% endif %}
 
 <form method="post" action="settings">
@@ -42,6 +43,10 @@
     </label>
     <label>Minimum recurring days before a pattern becomes a recommendation
       <input type="number" name="min_recurring_days" min="1" max="30" value="{{ config.min_recurring_days }}">
+    </label>
+    <label>
+      <input type="checkbox" name="ignore_own_receiver_traffic" {% if config.ignore_own_receiver_traffic %}checked{% endif %}>
+      Ignore traffic to this add-on's own syslog/NetFlow ports (e.g. the router forwarding its own logs here)
     </label>
   </fieldset>
 

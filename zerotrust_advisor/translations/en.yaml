@@ -17,6 +17,9 @@ configuration:
   min_recurring_days:
     name: Minimum recurring days
     description: A traffic pattern must recur across at least this many distinct days before it's suggested.
+  ignore_own_receiver_traffic:
+    name: Ignore traffic to this add-on's own receiver
+    description: Skip traffic destined for this add-on's own syslog/NetFlow ports (e.g. the router forwarding its logs here) when generating recommendations — that traffic is expected and not a segmentation decision. On by default.
   enable_mdns_classification:
     name: Enable mDNS listening
     description: Passively listen for mDNS to improve device classification. Requires host networking; leave off unless you need it.

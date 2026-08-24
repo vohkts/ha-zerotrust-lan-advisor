@@ -38,6 +38,7 @@ def save_settings():
             "network_labels": _lines(form.get("network_labels", "")),
             "retention_days": int(form.get("retention_days", 90)),
             "min_recurring_days": int(form.get("min_recurring_days", 3)),
+            "ignore_own_receiver_traffic": "ignore_own_receiver_traffic" in form,
             "enable_mdns_classification": "enable_mdns_classification" in form,
             "llm_mode": form.get("llm_mode", "local"),
             "llm_remote_base_url": form.get("llm_remote_base_url", "").strip(),
