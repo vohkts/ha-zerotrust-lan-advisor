@@ -43,15 +43,36 @@
 </section>
 
 <section>
-  <h3>Identified networks</h3>
+  <h3>Networks (auto-discovered)</h3>
+  <p class="hint">Discovered from traffic itself — no manual subnet/VLAN entry required. Networks seen on a
+     real firewall interface (<span class="chip chip-ok">confirmed</span>) are more reliable than ones only
+     inferred from an IP's /24 (<span class="chip chip-warn">inferred</span>), which is the fallback for
+     flow-only devices. Give any of them a name below if you'd like — purely a label, never required.</p>
   {% if not network_rows %}
-    <p class="hint">No network labels configured yet — set them in Settings to see this broken out by network.</p>
+    <p class="hint">No networks discovered yet — nothing has been seen with interface information.</p>
   {% else %}
   <table class="status-table">
-    <thead><tr><th>Network</th><th>CIDR</th><th>Distinct hosts</th><th>Events</th></tr></thead>
+    <thead><tr><th>Network</th><th>Discovered as</th><th>Hosts</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
     <tbody>
       {% for n in network_rows %}
-      <tr><td>{{ n.label }}</td><td>{{ n.cidr }}</td><td>{{ n.hosts }}</td><td>{{ n.events }}</td></tr>
+      <tr data-network-key="{{ n.key }}">
+        <td>
+          <form class="rename-form">
+            <input type="hidden" name="discovery_key" value="{{ n.key }}">
+            <input type="text" name="friendly_name" value="{{ n.display_name if n.display_name != n.key else '' }}"
+                   placeholder="{{ n.key }}">
+            <button type="button" data-action="traffic/rename" data-form-body="closest">Save</button>
+          </form>
+        </td>
+        <td>{{ n.key }}
+          {% if n.kind == 'interface' %}<span class="chip chip-ok">confirmed</span>
+          {% else %}<span class="chip chip-warn">inferred</span>{% endif %}
+        </td>
+        <td>{{ n.hosts }}</td>
+        <td>{{ n.events }}</td>
+        <td>{{ n.first_seen | fmt_time }}</td>
+        <td>{{ n.last_seen | fmt_time }}</td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>

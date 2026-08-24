@@ -14,7 +14,8 @@ import sqlite3
 import time
 
 from app.analysis.grouping import GroupableEvent, group_candidate_patterns
-from app.analysis.netlabels import NetworkLabel, label_for_ip, parse_network_labels
+from app.analysis.netlabels import parse_network_labels
+from app.analysis.network_map import NetworkMap, build_network_map, load_friendly_names, resolve_label
 from app.analysis.noise import is_own_receiver_traffic
 from app.config import Config, read_secret
 from app.llm.client import LLMError, chat_completion
@@ -39,7 +40,9 @@ def _identity_for_ip(conn: sqlite3.Connection, ip: str, network_label: str) -> C
 
 def _load_events(
     conn: sqlite3.Connection,
-    labels: list[NetworkLabel],
+    network_map: NetworkMap,
+    friendly_names: dict[str, str],
+    manual_labels: list,
     since: float,
     host_ip: str | None,
     syslog_port: int,
@@ -57,8 +60,8 @@ def _load_events(
             # add-on's receiver — expected and intentional, not a
             # segmentation decision worth a recommendation.
             continue
-        src_label = label_for_ip(src_ip, labels)
-        dst_label = label_for_ip(dst_ip, labels)
+        src_label = resolve_label(src_ip, network_map, friendly_names, manual_labels)
+        dst_label = resolve_label(dst_ip, network_map, friendly_names, manual_labels)
         events.append(
             GroupableEvent(
                 event_id=event_id,
@@ -97,10 +100,13 @@ def _llm_base_url(config: Config) -> tuple[str, str | None]:
 def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | None = None) -> int:
     """Returns the number of new recommendations written."""
     now = now or time.time()
-    labels = parse_network_labels(list(config.network_labels))
+    since = now - _LOOKBACK_SECONDS
+    manual_labels = parse_network_labels(list(config.network_labels))
+    network_map = build_network_map(conn, since=since)
+    friendly_names = load_friendly_names(conn)
     host_ip = get_host_ip()
     events = _load_events(
-        conn, labels, since=now - _LOOKBACK_SECONDS, host_ip=host_ip,
+        conn, network_map, friendly_names, manual_labels, since=since, host_ip=host_ip,
         syslog_port=config.syslog_port, netflow_port=config.netflow_port,
     )
     patterns = group_candidate_patterns(events, min_recurring_days=config.min_recurring_days)

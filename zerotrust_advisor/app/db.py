@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS recommendations (
     evidence_event_ids TEXT
 );
 
+-- Optional friendly names for auto-discovered networks (see
+-- app/analysis/network_map.py). discovery_key is the stable identifier a
+-- network was discovered under (an interface name like "br21", or an
+-- inferred CIDR like "192.168.10.0/24" when no interface signal exists) —
+-- naming a network is a display-only convenience, never required for
+-- discovery or recommendations to work.
+CREATE TABLE IF NOT EXISTS network_names (
+    discovery_key TEXT PRIMARY KEY,
+    friendly_name TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS coverage_status (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     checked_at REAL NOT NULL,

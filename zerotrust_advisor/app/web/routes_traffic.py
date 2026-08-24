@@ -1,10 +1,14 @@
 """Traffic screen: a plain, structured view of what's actually been seen —
-identified networks, hosts, the most common flows, and a sample of recent
-distinct ones. Reads only the parsed, structured event tables (never raw
-syslog text, which the receivers discard by design) and shows real local
-IPs/hostnames — this page never leaves the box, so the pseudonymization
-used for LLM calls doesn't apply here; showing the admin their own network
-plainly is the point.
+auto-discovered networks, hosts, the most common flows, and a sample of
+recent distinct ones. Reads only the parsed, structured event tables
+(never raw syslog text, which the receivers discard by design) and shows
+real local IPs/hostnames — this page never leaves the box, so the
+pseudonymization used for LLM calls doesn't apply here; showing the admin
+their own network plainly is the point.
+
+Networks are discovered from traffic itself (see network_map.py) — no
+manual subnet/VLAN entry required. A friendly name is an optional label on
+top of a discovery, never a prerequisite for it.
 """
 from __future__ import annotations
 
@@ -12,11 +16,12 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 
-from flask import Blueprint, current_app, render_template
+from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.analysis.direction import count_directions
 from app.analysis.known_ports import PROTO_NAMES, describe_port
-from app.analysis.netlabels import label_for_ip, parse_network_labels
+from app.analysis.netlabels import parse_network_labels
+from app.analysis.network_map import NetworkMap, build_network_map, load_friendly_names, resolve_label, set_friendly_name
 from app.web.db_context import get_db
 
 traffic_bp = Blueprint("traffic", __name__)
@@ -69,13 +74,13 @@ def _load_identities(conn) -> dict[str, dict]:
     return identities
 
 
-def _flow_row(src, dst, proto, port, count, last_seen, labels, identities) -> dict:
+def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_names, manual_labels, identities) -> dict:
     return {
         "src": src,
-        "src_network": label_for_ip(src, labels),
+        "src_network": resolve_label(src, network_map, friendly_names, manual_labels),
         "src_class": (identities.get(src) or {}).get("device_class"),
         "dst": dst,
-        "dst_network": label_for_ip(dst, labels),
+        "dst_network": resolve_label(dst, network_map, friendly_names, manual_labels),
         "dst_class": (identities.get(dst) or {}).get("device_class"),
         "proto": PROTO_NAMES.get(proto, str(proto)),
         "port": port,
@@ -85,26 +90,23 @@ def _flow_row(src, dst, proto, port, count, last_seen, labels, identities) -> di
     }
 
 
-def _build_network_rows(labels, events: list[_Event]) -> list[dict]:
-    rows = []
-    for entry in labels:
-        hosts: set[str] = set()
-        event_count = 0
-        for e in events:
-            src_match = label_for_ip(e.src_ip, labels) == entry.label
-            dst_match = label_for_ip(e.dst_ip, labels) == entry.label
-            if src_match:
-                hosts.add(e.src_ip)
-            if dst_match:
-                hosts.add(e.dst_ip)
-            if src_match or dst_match:
-                event_count += 1
-        rows.append({"label": entry.label, "cidr": str(entry.network), "hosts": len(hosts), "events": event_count})
-    rows.sort(key=lambda r: -r["events"])
-    return rows
+def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str]) -> list[dict]:
+    # network_map.networks is already sorted by event volume, descending.
+    return [
+        {
+            "key": net.key,
+            "kind": net.kind,
+            "display_name": friendly_names.get(net.key, net.key),
+            "hosts": len(net.hosts),
+            "events": net.event_count,
+            "first_seen": net.first_seen,
+            "last_seen": net.last_seen,
+        }
+        for net in network_map.networks
+    ]
 
 
-def _build_host_rows(labels, identities, events: list[_Event]) -> list[dict]:
+def _build_host_rows(network_map, friendly_names, manual_labels, identities, events: list[_Event]) -> list[dict]:
     counts: Counter = Counter()
     last_seen: dict[str, float] = {}
     first_seen: dict[str, float] = {}
@@ -120,7 +122,7 @@ def _build_host_rows(labels, identities, events: list[_Event]) -> list[dict]:
         rows.append(
             {
                 "ip": ip,
-                "network": label_for_ip(ip, labels),
+                "network": resolve_label(ip, network_map, friendly_names, manual_labels),
                 "device_class": info.get("device_class") or "Unclassified",
                 "confidence": info.get("confidence") or "low",
                 "events": count,
@@ -131,7 +133,7 @@ def _build_host_rows(labels, identities, events: list[_Event]) -> list[dict]:
     return rows
 
 
-def _build_flow_tables(labels, identities, events: list[_Event]) -> tuple[list[dict], list[dict]]:
+def _build_flow_tables(network_map, friendly_names, manual_labels, identities, events: list[_Event]) -> tuple[list[dict], list[dict]]:
     counts: Counter = Counter()
     last_seen: dict[tuple, float] = {}
     for e in events:  # newest-first
@@ -140,7 +142,8 @@ def _build_flow_tables(labels, identities, events: list[_Event]) -> tuple[list[d
         last_seen.setdefault(key, e.ts)
 
     top_flows = [
-        _flow_row(*key, count, last_seen[key], labels, identities) for key, count in counts.most_common(_TOP_FLOWS_LIMIT)
+        _flow_row(*key, count, last_seen[key], network_map, friendly_names, manual_labels, identities)
+        for key, count in counts.most_common(_TOP_FLOWS_LIMIT)
     ]
 
     seen: set[tuple] = set()
@@ -150,7 +153,9 @@ def _build_flow_tables(labels, identities, events: list[_Event]) -> tuple[list[d
         if key in seen:
             continue
         seen.add(key)
-        recent_examples.append(_flow_row(*key, counts[key], e.ts, labels, identities))
+        recent_examples.append(
+            _flow_row(*key, counts[key], e.ts, network_map, friendly_names, manual_labels, identities)
+        )
         if len(recent_examples) >= _RECENT_EXAMPLES_LIMIT:
             break
 
@@ -164,14 +169,16 @@ def traffic_page():
     now = time.time()
     since = now - _WINDOW_SECONDS
 
-    labels = parse_network_labels(list(config.network_labels))
+    manual_labels = parse_network_labels(list(config.network_labels))
+    network_map = build_network_map(conn, since=since)
+    friendly_names = load_friendly_names(conn)
     events = _load_events(conn, since)
     identities = _load_identities(conn)
 
     direction_counts = count_directions([(e.src_ip, e.dst_ip) for e in events])
-    network_rows = _build_network_rows(labels, events)
-    host_rows = _build_host_rows(labels, identities, events)
-    top_flows, recent_examples = _build_flow_tables(labels, identities, events)
+    network_rows = _build_network_rows(network_map, friendly_names)
+    host_rows = _build_host_rows(network_map, friendly_names, manual_labels, identities, events)
+    top_flows, recent_examples = _build_flow_tables(network_map, friendly_names, manual_labels, identities, events)
 
     return render_template(
         "traffic.html",
@@ -183,3 +190,13 @@ def traffic_page():
         recent_examples=recent_examples,
         window_days=_WINDOW_SECONDS // 86400,
     )
+
+
+@traffic_bp.route("/traffic/rename", methods=["POST"])
+def rename_network():
+    discovery_key = request.form.get("discovery_key", "").strip()
+    friendly_name = request.form.get("friendly_name", "")
+    if not discovery_key:
+        return jsonify({"error": "missing discovery_key"}), 400
+    set_friendly_name(get_db(), discovery_key, friendly_name)
+    return jsonify({"status": "ok"})

@@ -26,9 +26,13 @@
 
   <fieldset>
     <legend>Networks</legend>
-    <label>Network labels (one per line, as CIDR=Label)
+    <p class="hint">Networks are discovered automatically from traffic — see the Traffic screen, where you
+       can name any of them. Nothing here is required.</p>
+    <label>Manual network overrides (optional, one per line, as CIDR=Label)
       <textarea name="network_labels" rows="3" placeholder="192.168.10.0/24=IoT">{{ config.network_labels | join('\n') }}</textarea>
     </label>
+    <p class="hint">Only needed if you want to force a specific CIDR to a name, overriding auto-discovery —
+       most people won't need this.</p>
   </fieldset>
 
   <fieldset>

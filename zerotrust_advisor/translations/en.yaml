@@ -9,8 +9,8 @@ configuration:
     name: Allowed source IPs
     description: IP addresses permitted to send logs. Leave empty and set it from the in-app setup screen once you know your router's IP.
   network_labels:
-    name: Network labels
-    description: "Friendly names for your subnets, one per entry as CIDR=Label, e.g. 192.168.10.0/24=IoT."
+    name: Manual network overrides (optional)
+    description: "Networks are discovered automatically from traffic and named from the Traffic screen. Only set this to force a specific CIDR to a name, as CIDR=Label, e.g. 192.168.10.0/24=IoT."
   retention_days:
     name: Retention (days)
     description: How long parsed events are kept before being pruned.

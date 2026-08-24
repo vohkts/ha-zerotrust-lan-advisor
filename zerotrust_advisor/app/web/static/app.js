@@ -8,8 +8,15 @@ document.addEventListener("click", async (event) => {
 
   button.disabled = true;
   const statusEl = document.getElementById("run-now-status");
+  // Buttons with data-form-body="closest" (e.g. the network rename form)
+  // send their enclosing form's fields as the POST body; everything else
+  // posts with no body, same as before.
+  const options = { method: "POST" };
+  if (button.dataset.formBody === "closest") {
+    options.body = new FormData(button.closest("form"));
+  }
   try {
-    const response = await fetch(button.dataset.action, { method: "POST" });
+    const response = await fetch(button.dataset.action, options);
     if (!response.ok && response.status !== 409) {
       throw new Error(`request failed: ${response.status}`);
     }
