@@ -12,6 +12,11 @@ Assistant and decide what to do with it.
 
 - Runs its own small syslog and NetFlow/IPFIX receivers so your router can
   point its logs at Home Assistant.
+- **Maps your network by watching it** — no manual subnet/VLAN entry. Real
+  firewall logs carry the interface a packet crossed, which is a far
+  stronger signal than guessing from an IP; devices get grouped by that,
+  and shown under the /24 range a human actually recognizes (clearly
+  marked as a guess until you name it yourself).
 - Sanitizes what it collects: real IPs, MACs and hostnames never leave the
   add-on. Traffic is bucketed by *device class* (e.g. "phone", "smart
   speaker") instead.
@@ -20,6 +25,11 @@ Assistant and decide what to do with it.
   to a remote OpenAI-compatible endpoint if you want faster or higher
   quality output. Pseudonymized data is all that's ever sent remotely, and
   only if you turn that on.
+- Splits its recommendations into two kinds: **Zero-Trust Rules** (a real
+  segmentation decision to consider) and **Setup & Tuning** (deterministic,
+  LLM-free findings about the observability setup itself — noisy router
+  logging categories worth turning down, gaps worth closing). Mixing the
+  two made the real firewall decisions harder to act on.
 - Tells you plainly what it *can't* see yet. Most home routers hardware-
   offload inter-VLAN routing, which means flow export tools like NetFlow
   never see that traffic at all — the add-on watches for that gap and
@@ -27,9 +37,11 @@ Assistant and decide what to do with it.
 
 ## Status
 
-Early build, proof-of-concept target is a UniFi UDM Pro. See
-[`zerotrust_advisor/DOCS.md`](zerotrust_advisor/DOCS.md) for setup and
-[`CHANGELOG.md`](zerotrust_advisor/CHANGELOG.md) for what's landed so far.
+Stage 1 is built and running. Proof-of-concept target is a UniFi UDM Pro,
+though the parsing is intentionally tolerant rather than hard-coded to one
+router. See [`zerotrust_advisor/DOCS.md`](zerotrust_advisor/DOCS.md) for
+setup and [`zerotrust_advisor/CHANGELOG.md`](zerotrust_advisor/CHANGELOG.md)
+for what's landed so far.
 
 ## Installation
 
