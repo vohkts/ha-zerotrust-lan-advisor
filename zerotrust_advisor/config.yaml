@@ -7,6 +7,7 @@ arch:
   - amd64
   - aarch64
 init: false
+apparmor: false
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:shield-lock-outline
