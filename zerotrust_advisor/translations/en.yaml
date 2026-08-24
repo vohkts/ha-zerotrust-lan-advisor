@@ -1,0 +1,31 @@
+configuration:
+  syslog_port:
+    name: Syslog port
+    description: UDP port the add-on listens on for firewall/syslog messages.
+  netflow_port:
+    name: NetFlow/IPFIX port
+    description: UDP port the add-on listens on for NetFlow v9 / IPFIX exports.
+  allowed_sources:
+    name: Allowed source IPs
+    description: IP addresses permitted to send logs. Leave empty and set it from the in-app setup screen once you know your router's IP.
+  network_labels:
+    name: Network labels
+    description: "Friendly names for your subnets, one per entry as CIDR=Label, e.g. 192.168.10.0/24=IoT."
+  retention_days:
+    name: Retention (days)
+    description: How long parsed events are kept before being pruned.
+  min_recurring_days:
+    name: Minimum recurring days
+    description: A traffic pattern must recur across at least this many distinct days before it's suggested.
+  enable_mdns_classification:
+    name: Enable mDNS listening
+    description: Passively listen for mDNS to improve device classification. Requires host networking; leave off unless you need it.
+  llm_mode:
+    name: LLM mode
+    description: Use the bundled local model or a remote OpenAI-compatible endpoint.
+  llm_remote_base_url:
+    name: Remote LLM base URL
+    description: Only used when LLM mode is "remote".
+  llm_model_path:
+    name: Local model path
+    description: Optional path under /data/models to a GGUF file, if you don't want the default model.

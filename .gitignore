@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Add-on runtime data never belongs in the repo
+data/
+*.db
+*.db-wal
+*.db-shm
+options.json
+secrets/
+models/*.gguf

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Settings</h2>
+
+{% if saved %}
+<p class="chip chip-ok">Saved. Port, allow-list, or mDNS changes need an add-on restart to take effect.</p>
+{% endif %}
+
+<form method="post" action="settings">
+  <fieldset>
+    <legend>Collection</legend>
+    <label>Syslog port
+      <input type="number" name="syslog_port" min="1" max="65535" value="{{ config.syslog_port }}">
+    </label>
+    <label>NetFlow/IPFIX port
+      <input type="number" name="netflow_port" min="1" max="65535" value="{{ config.netflow_port }}">
+    </label>
+    <label>Allowed source IPs (one per line)
+      <textarea name="allowed_sources" rows="3">{{ config.allowed_sources | join('\n') }}</textarea>
+    </label>
+    <label>
+      <input type="checkbox" name="enable_mdns_classification" {% if config.enable_mdns_classification %}checked{% endif %}>
+      Enable mDNS listening for better device classification (requires host networking &mdash; see DOCS.md)
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Networks</legend>
+    <label>Network labels (one per line, as CIDR=Label)
+      <textarea name="network_labels" rows="3" placeholder="192.168.10.0/24=IoT">{{ config.network_labels | join('\n') }}</textarea>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Recommendations</legend>
+    <label>Retention (days)
+      <input type="number" name="retention_days" min="7" max="365" value="{{ config.retention_days }}">
+    </label>
+    <label>Minimum recurring days before a pattern becomes a recommendation
+      <input type="number" name="min_recurring_days" min="1" max="30" value="{{ config.min_recurring_days }}">
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>LLM</legend>
+    <label>Mode
+      <select name="llm_mode">
+        <option value="local" {% if config.llm_mode == 'local' %}selected{% endif %}>Local (bundled, on your own hardware)</option>
+        <option value="remote" {% if config.llm_mode == 'remote' %}selected{% endif %}>Remote (OpenAI-compatible endpoint)</option>
+      </select>
+    </label>
+    <label>Local model path (optional, relative to /data/models &mdash; leave blank for the bundled default)
+      <input type="text" name="llm_model_path" value="{{ config.llm_model_path }}">
+    </label>
+    <label>Remote base URL (e.g. https://api.openai.com/v1)
+      <input type="text" name="llm_remote_base_url" value="{{ config.llm_remote_base_url }}">
+    </label>
+    <label>Remote API key (leave blank to keep the current one)
+      <input type="password" name="llm_api_key" autocomplete="off">
+    </label>
+    <p class="hint">
+      Switching to a remote endpoint sends only pseudonymized data &mdash; device
+      <em>classes</em> like "iPhone" or "Apple HomePod / smart speaker", never real
+      IPs, MACs or hostnames. See DOCS.md for exactly what that means before turning it on.
+    </p>
+  </fieldset>
+
+  <button type="submit">Save</button>
+</form>
+{% endblock %}

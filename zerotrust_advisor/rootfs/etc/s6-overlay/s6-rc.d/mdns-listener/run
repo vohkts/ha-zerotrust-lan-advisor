@@ -1,0 +1,2 @@
+#!/usr/bin/with-contenv bash
+exec python3 /opt/zerotrust_advisor/app/mdns_listener.py

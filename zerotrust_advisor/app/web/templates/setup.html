@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Setup</h2>
+
+<section>
+  <h3>Service status</h3>
+  <table class="status-table">
+    <thead><tr><th>Service</th><th>Status</th><th>Last event</th><th>Details</th></tr></thead>
+    <tbody>
+      {% for name, info in health.items() %}
+      <tr>
+        <td>{{ name }}</td>
+        {% if info is none %}
+          <td><span class="chip chip-warn">not started</span></td>
+          <td>&mdash;</td>
+          <td>&mdash;</td>
+        {% else %}
+          <td><span class="chip chip-ok">running</span></td>
+          <td>{{ info.get('last_event_at') | fmt_time }}</td>
+          <td>
+            {% if name == 'syslog' %}
+              accepted {{ info.get('accepted', 0) }}, rejected {{ info.get('rejected', 0) }},
+              parsed {{ info.get('parsed', 0) }}, unparsed {{ info.get('unparsed', 0) }}
+            {% elif name == 'netflow' %}
+              accepted {{ info.get('accepted', 0) }}, rejected {{ info.get('rejected', 0) }},
+              decoded flows {{ info.get('decoded_flows', 0) }}
+            {% elif name == 'mdns' %}
+              hostnames seen {{ info.get('hostnames_seen', 0) }}
+              {% if not config.enable_mdns_classification %}(disabled in settings){% endif %}
+            {% endif %}
+          </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h3>What can this add-on see right now?</h3>
+  {% if not warnings %}
+    <p class="chip chip-ok">No gaps detected.</p>
+  {% else %}
+    <ul class="warning-list">
+      {% for w in warnings %}
+        <li class="warning warning-{{ w.severity }}">{{ w.message }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Router-side setup (UniFi UDM Pro example)</h3>
+  <p>Router firmware and menu layout drift over time — treat this as a starting point, not gospel.</p>
+  <ol>
+    <li>
+      <strong>Firewall logging.</strong> On the rules you want visibility into (especially
+      inter-VLAN rules), enable per-rule logging and point syslog at this add-on's host on
+      UDP port <code>{{ config.syslog_port }}</code>.
+    </li>
+    <li>
+      <strong>NetFlow/IPFIX export.</strong> Settings &rarr; CyberSecure &rarr; Traffic Logging
+      &rarr; enable NetFlow, pointed at UDP port <code>{{ config.netflow_port }}</code>. Note: on
+      hardware that offloads inter-VLAN routing, this will only ever show WAN-crossing traffic —
+      see the warning above if that applies to you.
+    </li>
+    <li>
+      Set <strong>Allowed source IPs</strong> in Settings to your router's IP, or messages will
+      be received but rejected (see the counts above).
+    </li>
+  </ol>
+</section>
+{% endblock %}

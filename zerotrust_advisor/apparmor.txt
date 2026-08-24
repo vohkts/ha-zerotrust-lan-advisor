@@ -1,0 +1,15 @@
+#include <tunables/global>
+
+profile zerotrust_advisor flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network inet stream,
+  network inet dgram,
+
+  /opt/zerotrust_advisor/** r,
+  /usr/local/bin/llama-server ix,
+  /data/** rw,
+  /dev/shm/** rw,
+
+  deny /proc/sys/kernel/core_pattern w,
+}

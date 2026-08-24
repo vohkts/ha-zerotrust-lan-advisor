@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Recommendations</h2>
+
+<button id="run-now" type="button" data-action="recommendations/run-now">Run analysis now</button>
+<p id="run-now-status" class="hint"></p>
+
+{% if not items %}
+  <p>Nothing yet. Recommendations show up here once the same traffic pattern has recurred
+     across enough distinct days — see the Setup screen to check what's being collected.</p>
+{% endif %}
+
+{% for item in items %}
+<article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
+  <header>
+    <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
+    <span class="status">{{ item.status }}</span>
+    <time>{{ item.created_at | fmt_time }}</time>
+  </header>
+  <p class="summary">{{ item.summary }}</p>
+  <dl>
+    <dt>Likely purpose</dt><dd>{{ item.structured.likely_purpose }}</dd>
+    <dt>Suggested rule scope</dt><dd>{{ item.structured.suggested_rule_scope }}</dd>
+    {% if item.structured.caveats %}
+    <dt>Caveats</dt>
+    <dd><ul>{% for c in item.structured.caveats %}<li>{{ c }}</li>{% endfor %}</ul></dd>
+    {% endif %}
+  </dl>
+  {% if item.status == 'pending' %}
+  <div class="actions">
+    <button type="button" class="accept" data-action="recommendations/{{ item.id }}/accept">Accept</button>
+    <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/dismiss">Dismiss</button>
+  </div>
+  {% endif %}
+</article>
+{% endfor %}
+{% endblock %}
