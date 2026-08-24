@@ -11,11 +11,11 @@ NETWORK_MAP = NetworkMap(
     networks=[
         DiscoveredNetwork(
             key="br1", kind="interface", hosts=frozenset({"192.168.10.5", "192.168.10.6"}),
-            event_count=3, first_seen=100, last_seen=300,
+            event_count=3, first_seen=100, last_seen=300, guessed_range="192.168.10.0/24",
         ),
         DiscoveredNetwork(
             key="br2", kind="interface", hosts=frozenset({"192.168.20.9"}),
-            event_count=2, first_seen=200, last_seen=300,
+            event_count=2, first_seen=200, last_seen=300, guessed_range="192.168.20.0/24",
         ),
     ],
     ip_to_key={"192.168.10.5": "br1", "192.168.10.6": "br1", "192.168.20.9": "br2"},
@@ -44,9 +44,13 @@ def test_network_rows_reflect_discovered_networks_with_friendly_names():
     assert by_key["br2"]["hosts"] == 1  # .20.9 only
 
 
-def test_network_rows_fall_back_to_key_without_a_friendly_name():
+def test_network_rows_fall_back_to_guessed_range_without_a_friendly_name():
+    # Not the raw interface name — "br1" means nothing to a user.
     rows = _build_network_rows(NETWORK_MAP, {})
-    assert {r["key"]: r["display_name"] for r in rows} == {"br1": "br1", "br2": "br2"}
+    assert {r["key"]: r["display_name"] for r in rows} == {
+        "br1": "192.168.10.0/24",
+        "br2": "192.168.20.0/24",
+    }
 
 
 def test_host_rows_ranked_by_event_count_with_first_last_seen():

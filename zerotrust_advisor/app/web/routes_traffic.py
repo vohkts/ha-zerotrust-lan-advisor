@@ -96,7 +96,8 @@ def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str])
         {
             "key": net.key,
             "kind": net.kind,
-            "display_name": friendly_names.get(net.key, net.key),
+            "guessed_range": net.guessed_range,
+            "display_name": friendly_names.get(net.key, net.guessed_range or net.key),
             "hosts": len(net.hosts),
             "events": net.event_count,
             "first_seen": net.first_seen,

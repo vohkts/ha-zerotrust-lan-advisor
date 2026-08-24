@@ -35,18 +35,28 @@ _MAX_ROWS = 50000
 
 @dataclass(frozen=True)
 class DiscoveredNetwork:
-    key: str  # an interface name ("br21") or an inferred CIDR ("192.168.10.0/24")
-    kind: str  # "interface" | "prefix"
+    key: str  # stable grouping identity: an interface name ("br21") or, for
+    # kind="prefix", the same value as guessed_range — used for friendly-name
+    # storage and the ip_to_key lookup, never shown to a user on its own.
+    kind: str  # "interface" | "prefix" — confidence of the *grouping* (are
+    # these hosts really one network?), independent of the range guess below.
     hosts: frozenset[str]
     event_count: int
     first_seen: float
     last_seen: float
+    guessed_range: str | None  # the /24 a human would actually recognize —
+    # always a guess in Stage 1 (no router API to confirm the real subnet
+    # mask), even when the *grouping* itself is interface-confirmed.
 
 
 @dataclass(frozen=True)
 class NetworkMap:
     networks: list[DiscoveredNetwork]
     ip_to_key: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def by_key(self) -> dict[str, DiscoveredNetwork]:
+        return {n.key: n for n in self.networks}
 
 
 def _prefix_key(ip: str) -> str | None:
@@ -57,6 +67,16 @@ def _prefix_key(ip: str) -> str | None:
     if isinstance(address, ipaddress.IPv6Address):
         return None  # a naive /24-style prefix heuristic doesn't translate to IPv6
     return str(ipaddress.ip_network(f"{ip}/24", strict=False))
+
+
+def _dominant_ipv4_range(hosts: frozenset[str]) -> str | None:
+    """The /24 most of this network's hosts actually fall in — a "good
+    guess" per real-world VLANs almost always being /24s, but still a
+    guess: nothing here confirms the router's actual configured mask."""
+    prefixes = Counter(p for ip in hosts if (p := _prefix_key(ip)) is not None)
+    if not prefixes:
+        return None
+    return prefixes.most_common(1)[0][0]
 
 
 def infer_ip_keys(
@@ -111,17 +131,24 @@ def build_network_map(conn: sqlite3.Connection, since: float, max_rows: int = _M
             if resolved:
                 _touch(stats, resolved, ip, ts)
 
-    networks = [
-        DiscoveredNetwork(
-            key=key,
-            kind=entry["kind"],
-            hosts=frozenset(entry["hosts"]),
-            event_count=entry["count"],
-            first_seen=entry["first"],
-            last_seen=entry["last"],
+    networks = []
+    for key, entry in stats.items():
+        hosts = frozenset(entry["hosts"])
+        # For kind="prefix" the key already *is* the guessed range; for
+        # kind="interface" it's a bridge name, so derive the range from
+        # whichever /24 most of its hosts actually fall in.
+        guessed_range = key if entry["kind"] == "prefix" else _dominant_ipv4_range(hosts)
+        networks.append(
+            DiscoveredNetwork(
+                key=key,
+                kind=entry["kind"],
+                hosts=hosts,
+                event_count=entry["count"],
+                first_seen=entry["first"],
+                last_seen=entry["last"],
+                guessed_range=guessed_range,
+            )
         )
-        for key, entry in stats.items()
-    ]
     networks.sort(key=lambda n: -n.event_count)
 
     return NetworkMap(networks=networks, ip_to_key={ip: key for ip, (key, _kind) in ip_to_key_kind.items()})
@@ -161,10 +188,11 @@ def resolve_label(
 ) -> str:
     """The one place display-name resolution happens, in priority order:
     an explicit manual CIDR=Label override (Settings, optional) > a
-    friendly name given to an auto-discovered network > the discovered
-    key itself (an interface name or inferred CIDR) > the raw IP, when
-    nothing was ever discovered for it at all (e.g. a WAN address never
-    seen locally)."""
+    friendly name given to an auto-discovered network > that network's
+    guessed IP range (a bridge name like "br21" means nothing to a user,
+    or to a recommendation's prose) > the discovered key itself, only if
+    no IPv4 range could be guessed at all > the raw IP, when nothing was
+    ever discovered for it (e.g. a WAN address never seen locally)."""
     if manual_labels:
         manual = label_for_ip(ip, manual_labels)
         if manual != ip:
@@ -173,4 +201,10 @@ def resolve_label(
     key = network_map.ip_to_key.get(ip)
     if key is None:
         return ip
-    return friendly_names.get(key, key)
+    if key in friendly_names:
+        return friendly_names[key]
+
+    network = network_map.by_key.get(key)
+    if network and network.guessed_range:
+        return network.guessed_range
+    return key

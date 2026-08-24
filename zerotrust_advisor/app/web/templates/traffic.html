@@ -44,29 +44,36 @@
 
 <section>
   <h3>Networks (auto-discovered)</h3>
-  <p class="hint">Discovered from traffic itself — no manual subnet/VLAN entry required. Networks seen on a
-     real firewall interface (<span class="chip chip-ok">confirmed</span>) are more reliable than ones only
-     inferred from an IP's /24 (<span class="chip chip-warn">inferred</span>), which is the fallback for
-     flow-only devices. Give any of them a name below if you'd like — purely a label, never required.</p>
+  <p class="hint">Discovered from traffic itself — no manual subnet/VLAN entry required. The range shown is
+     always a guess in this stage (there's no router API yet to confirm the real subnet mask) — a good one,
+     since real networks are almost always /24s, but a guess, marked as such until you name it yourself.
+     Which hosts belong together is a separate, more reliable signal: grouped from a real firewall interface
+     (<span class="chip chip-ok">confirmed</span>) beats grouped only by IP proximity
+     (<span class="chip chip-warn">address-based</span>), which is the fallback for flow-only devices.</p>
   {% if not network_rows %}
-    <p class="hint">No networks discovered yet — nothing has been seen with interface information.</p>
+    <p class="hint">No networks discovered yet.</p>
   {% else %}
   <table class="status-table">
-    <thead><tr><th>Network</th><th>Discovered as</th><th>Hosts</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
+    <thead><tr><th>Network</th><th>Grouping</th><th>Hosts</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
     <tbody>
       {% for n in network_rows %}
       <tr data-network-key="{{ n.key }}">
         <td>
           <form class="rename-form">
             <input type="hidden" name="discovery_key" value="{{ n.key }}">
-            <input type="text" name="friendly_name" value="{{ n.display_name if n.display_name != n.key else '' }}"
-                   placeholder="{{ n.key }}">
+            <input type="text" name="friendly_name"
+                   value="{{ n.display_name if n.display_name not in (n.key, n.guessed_range) else '' }}"
+                   placeholder="{{ n.guessed_range or n.key }}">
             <button type="button" data-action="traffic/rename" data-form-body="closest">Save</button>
           </form>
+          {% if n.display_name == n.guessed_range %}
+            <span class="chip chip-warn">guess</span>
+          {% endif %}
         </td>
-        <td>{{ n.key }}
+        <td>
           {% if n.kind == 'interface' %}<span class="chip chip-ok">confirmed</span>
-          {% else %}<span class="chip chip-warn">inferred</span>{% endif %}
+          {% else %}<span class="chip chip-warn">address-based</span>{% endif %}
+          <span class="hint">({{ n.key }})</span>
         </td>
         <td>{{ n.hosts }}</td>
         <td>{{ n.events }}</td>

@@ -71,6 +71,18 @@ def test_build_network_map_groups_hosts_by_interface(tmp_path):
     assert result.ip_to_key["192.168.10.5"] == "br1"
 
 
+def test_build_network_map_derives_a_guessed_range_for_interface_networks(tmp_path):
+    conn = _seed_db(tmp_path)
+    result = build_network_map(conn, since=NOW - 60)
+    by_key = {n.key: n for n in result.networks}
+
+    # br1's hosts (192.168.10.5, .6) both fall in the same /24 — a clean guess.
+    assert by_key["br1"].guessed_range == "192.168.10.0/24"
+    assert by_key["br1"].kind == "interface"
+    # For kind="prefix" networks the key already *is* the guessed range.
+    assert by_key["192.168.30.0/24"].guessed_range == "192.168.30.0/24"
+
+
 def test_build_network_map_prefix_fallback_for_flow_only_ips(tmp_path):
     conn = _seed_db(tmp_path)
     result = build_network_map(conn, since=NOW - 60)
@@ -81,14 +93,15 @@ def test_build_network_map_prefix_fallback_for_flow_only_ips(tmp_path):
     assert "8.8.8.8" in result.ip_to_key
 
 
-def test_resolve_label_priority_manual_then_friendly_then_key_then_raw_ip(tmp_path):
+def test_resolve_label_priority_manual_then_friendly_then_guessed_range_then_raw_ip(tmp_path):
     conn = _seed_db(tmp_path)
     network_map = build_network_map(conn, since=NOW - 60)
 
-    # Nothing set yet: falls back to the discovered key itself.
-    assert resolve_label("192.168.10.5", network_map, {}) == "br1"
+    # Nothing set yet: falls back to the guessed IP range, not the raw
+    # interface name — "br1" means nothing to a user, "192.168.10.0/24" does.
+    assert resolve_label("192.168.10.5", network_map, {}) == "192.168.10.0/24"
 
-    # A friendly name overrides the raw key.
+    # A friendly name overrides the guessed range.
     set_friendly_name(conn, "br1", "IoT")
     friendly = load_friendly_names(conn)
     assert resolve_label("192.168.10.5", network_map, friendly) == "IoT"
