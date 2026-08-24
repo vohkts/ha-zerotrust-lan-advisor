@@ -120,7 +120,11 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
                 json.dumps(pattern.sample_event_ids),
             ),
         )
+        # Committed per pattern, right away: an LLM call can take anywhere
+        # from a second to a minute, and holding the write transaction open
+        # across every remaining pattern's call would starve the receivers'
+        # writes to the same database for the whole analysis pass.
+        conn.commit()
         written += 1
 
-    conn.commit()
     return written

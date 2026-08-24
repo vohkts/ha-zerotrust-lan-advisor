@@ -10,6 +10,7 @@ from flask import Blueprint, current_app, render_template
 from app.analysis.coverage import CoverageInputs, evaluate_coverage
 from app.analysis.netlabels import label_for_ip, parse_network_labels
 from app.health import read_health
+from app.web.db_context import get_db
 
 setup_bp = Blueprint("setup", __name__)
 
@@ -61,10 +62,12 @@ def _gather_coverage_inputs(conn, config, now: float) -> CoverageInputs:
 @setup_bp.route("/setup")
 def setup_page():
     config = current_app.config["ZTA_CONFIG"]
-    conn = current_app.config["ZTA_DB"]
+    conn = get_db()
     now = time.time()
 
-    services = ["syslog", "netflow", "mdns", "web"]
+    # "web" isn't listed here — its uptime is self-evident from this page
+    # having loaded at all, so a self-reported health file would be redundant.
+    services = ["syslog", "netflow", "mdns"]
     health = {service: read_health(config.health_dir, service) for service in services}
     warnings = evaluate_coverage(_gather_coverage_inputs(conn, config, now))
 

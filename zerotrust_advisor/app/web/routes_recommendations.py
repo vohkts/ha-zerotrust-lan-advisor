@@ -13,6 +13,7 @@ import json
 from flask import Blueprint, current_app, jsonify, render_template
 
 from app.analysis.runner import run_analysis_now
+from app.web.db_context import get_db
 
 recommendations_bp = Blueprint("recommendations", __name__)
 
@@ -37,7 +38,7 @@ def _load_items(conn):
 
 @recommendations_bp.route("/recommendations")
 def list_recommendations():
-    conn = current_app.config["ZTA_DB"]
+    conn = get_db()
     return render_template("recommendations.html", items=_load_items(conn))
 
 
@@ -47,7 +48,7 @@ def update_recommendation(rec_id: int, action: str):
         return jsonify({"error": "unknown action"}), 400
 
     status = "accepted" if action == "accept" else "dismissed"
-    conn = current_app.config["ZTA_DB"]
+    conn = get_db()
     conn.execute("UPDATE recommendations SET status = ? WHERE id = ?", (status, rec_id))
     conn.commit()
     return jsonify({"status": status})
@@ -55,7 +56,7 @@ def update_recommendation(rec_id: int, action: str):
 
 @recommendations_bp.route("/recommendations/run-now", methods=["POST"])
 def run_now():
-    conn = current_app.config["ZTA_DB"]
+    conn = get_db()
     config = current_app.config["ZTA_CONFIG"]
     written = run_analysis_now(conn, config)
     if written < 0:

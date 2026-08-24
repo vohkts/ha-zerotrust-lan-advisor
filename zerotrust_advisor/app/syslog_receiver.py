@@ -17,7 +17,6 @@ from app.db import connect, prune
 from app.firewall_parse import UnparsableLine, parse_firewall_line
 from app.health import HealthReporter
 
-_FLUSH_EVERY = 20
 _PRUNE_INTERVAL_SECONDS = 3600
 
 _running = True
@@ -43,7 +42,6 @@ def main() -> None:
 
     health.update(accepted=0, rejected=0, parsed=0, unparsed=0, last_event_at=None)
 
-    pending = 0
     last_prune = time.time()
 
     while _running:
@@ -86,13 +84,16 @@ def main() -> None:
                 now,
             ),
         )
-        pending += 1
+        # Committed immediately, not batched: this connection is one of
+        # several independent writers sharing the database file (the other
+        # receivers, the web process), and holding a transaction open
+        # between UDP packets — which, on a quiet home network, could be
+        # a long time — starves every other writer waiting on the same
+        # SQLite write lock. A firewall log line is small; there's nothing
+        # worth batching here.
+        conn.commit()
         health.increment("parsed")
         health.update(last_event_at=now)
-
-        if pending >= _FLUSH_EVERY:
-            conn.commit()
-            pending = 0
 
         if now - last_prune > _PRUNE_INTERVAL_SECONDS:
             prune(conn, config.retention_days, now)

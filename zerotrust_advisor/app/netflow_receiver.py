@@ -13,7 +13,6 @@ from app.db import connect, prune
 from app.health import HealthReporter
 from app.netflow_decode import TemplateCache, decode_packet
 
-_FLUSH_EVERY = 20
 _PRUNE_INTERVAL_SECONDS = 3600
 
 _running = True
@@ -40,7 +39,6 @@ def main() -> None:
 
     health.update(accepted=0, rejected=0, decoded_flows=0, last_event_at=None)
 
-    pending = 0
     last_prune = time.time()
 
     while _running:
@@ -79,15 +77,17 @@ def main() -> None:
                     now,
                 ),
             )
-            pending += 1
 
         if flows:
+            # Committed once per packet, not batched across packets: this
+            # connection is one of several independent writers sharing the
+            # database file, and holding a transaction open between
+            # exports (which, on a quiet home network, could be minutes)
+            # starves every other writer waiting on the same SQLite write
+            # lock. All flows from one packet still land in one commit.
+            conn.commit()
             health.increment("decoded_flows", by=len(flows))
             health.update(last_event_at=now)
-
-        if pending >= _FLUSH_EVERY:
-            conn.commit()
-            pending = 0
 
         if now - last_prune > _PRUNE_INTERVAL_SECONDS:
             prune(conn, config.retention_days, now)

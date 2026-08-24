@@ -16,6 +16,9 @@ RUN apk add --no-cache python3 py3-pip libgomp
 COPY --from=llama-builder /src/llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
 
 WORKDIR /opt/zerotrust_advisor
+# s6 services don't inherit this WORKDIR as their own CWD, so the "app"
+# package needs to be on the path explicitly, not just importable from here.
+ENV PYTHONPATH=/opt/zerotrust_advisor
 COPY requirements.txt .
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 SCHEMA = """
@@ -89,13 +90,31 @@ CREATE TABLE IF NOT EXISTS coverage_status (
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
+    """Every service (syslog/netflow/mDNS receivers, the web process) opens
+    its own connection independently at container startup, so the first
+    schema-creation statements can race even with WAL mode and a busy
+    timeout set — switching journal mode is itself a brief exclusive
+    operation. `CREATE TABLE IF NOT EXISTS` is naturally idempotent, so a
+    short retry here is enough; there's nothing to coordinate beyond that.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.executescript(SCHEMA)
-    conn.commit()
+
+    delay = 0.2
+    for attempt in range(5):
+        try:
+            conn.executescript(SCHEMA)
+            conn.commit()
+            break
+        except sqlite3.OperationalError:
+            if attempt == 4:
+                raise
+            time.sleep(delay)
+            delay *= 2
+
     return conn
 
 

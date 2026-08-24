@@ -13,8 +13,9 @@ from flask import Flask, redirect
 from waitress import serve
 
 from app.analysis.runner import run_analysis_now
-from app.config import load_config
+from app.config import Config, load_config
 from app.db import connect
+from app.web.db_context import close_db
 from app.web.routes_recommendations import recommendations_bp
 from app.web.routes_settings import settings_bp
 from app.web.routes_setup import setup_bp
@@ -33,14 +34,13 @@ def _format_timestamp(ts: float | None) -> str:
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    config = load_config()
-    app.config["ZTA_CONFIG"] = config
-    app.config["ZTA_DB"] = connect(config.db_path)
+    app.config["ZTA_CONFIG"] = load_config()
 
     app.register_blueprint(setup_bp)
     app.register_blueprint(recommendations_bp)
     app.register_blueprint(settings_bp)
 
+    app.teardown_appcontext(close_db)
     app.jinja_env.filters["fmt_time"] = _format_timestamp
 
     @app.route("/")
@@ -55,11 +55,14 @@ def create_app() -> Flask:
     return app
 
 
-def _background_loop(app: Flask) -> None:
+def _background_loop(config: Config) -> None:
+    # One connection for this thread's whole life, separate from any
+    # request's — sqlite3 connections must stay on the thread that made them.
+    conn = connect(config.db_path)
     while True:
         time.sleep(_ANALYSIS_INTERVAL_SECONDS)
         try:
-            run_analysis_now(app.config["ZTA_DB"], app.config["ZTA_CONFIG"])
+            run_analysis_now(conn, config)
         except Exception:
             logger.exception("scheduled analysis pass failed")
 
@@ -67,8 +70,12 @@ def _background_loop(app: Flask) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     app = create_app()
-    threading.Thread(target=_background_loop, args=(app,), daemon=True).start()
-    serve(app, listen=f"127.0.0.1:{_LISTEN_PORT}")
+    threading.Thread(target=_background_loop, args=(app.config["ZTA_CONFIG"],), daemon=True).start()
+    # Ingress reaches this container over Supervisor's internal docker
+    # network, not localhost — binding to loopback here (unlike
+    # llama-server, which genuinely should stay loopback-only) would make
+    # the GUI unreachable from outside the container.
+    serve(app, listen=f"0.0.0.0:{_LISTEN_PORT}")
 
 
 if __name__ == "__main__":
