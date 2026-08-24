@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
-from app.config import load_config, read_secret, write_secret
+from app.config import load_config, read_secret, remove_secret, write_secret
 from app.unifi.capability_probe import probe
 from app.unifi.client import UnifiClientAPI, UnifiError, UnifiUnreachable
 from app.unifi.sync import load_probe_report
@@ -56,6 +56,11 @@ def save_settings():
     unifi_api_key = form.get("unifi_api_key", "").strip()
     if unifi_api_key:
         write_secret("unifi_api_key", unifi_api_key)
+    elif "unifi_api_key_clear" in form:
+        # Typing a new key always wins over clearing — if both happened
+        # (shouldn't, the checkbox is meant to be used on its own) treat it
+        # as "replace", not "replace then immediately delete".
+        remove_secret("unifi_api_key")
 
     update_options(
         {
@@ -107,14 +112,21 @@ def test_unifi_connection():
         return jsonify({"error": "missing_api_key"}), 400
 
     verify_tls = "unifi_verify_tls" in form
-    client = UnifiClientAPI(host=host, api_key=api_key, verify_tls=verify_tls)
 
     try:
+        client = UnifiClientAPI(host=host, api_key=api_key, verify_tls=verify_tls)
         report = probe(client)
     except (UnifiError, UnifiUnreachable) as exc:
         # probe() itself already catches these around every individual call
         # it makes — reaching here means something unexpected escaped that,
         # so report it rather than 500ing.
         return jsonify({"error": "probe_failed", "detail": str(exc)}), 502
+    except Exception as exc:  # noqa: BLE001 - deliberately broad
+        # A 500 here would hand the browser an HTML error page, which the
+        # frontend's response.json() call can't parse — surfacing as an
+        # opaque "something went wrong" with no way to tell what actually
+        # broke. Always answer in JSON instead, even for a bug this code
+        # didn't anticipate.
+        return jsonify({"error": "unexpected", "detail": str(exc)}), 500
 
     return jsonify(_report_to_json(report))

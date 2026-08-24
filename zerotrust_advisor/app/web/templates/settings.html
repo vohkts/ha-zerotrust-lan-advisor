@@ -93,6 +93,12 @@
     <label>API key {% if unifi_has_key %}<span class="hint">(one is already saved &mdash; leave blank to keep it)</span>{% endif %}
       <input type="password" name="unifi_api_key" id="unifi_api_key" autocomplete="off">
     </label>
+    {% if unifi_has_key %}
+    <label>
+      <input type="checkbox" name="unifi_api_key_clear" id="unifi_api_key_clear">
+      Remove the saved API key (on next Save, unless you also type a new one above)
+    </label>
+    {% endif %}
     <label>
       <input type="checkbox" name="unifi_verify_tls" id="unifi_verify_tls" {% if config.unifi_verify_tls %}checked{% endif %}>
       Verify the console's TLS certificate (leave off for a local UDM's self-signed cert)

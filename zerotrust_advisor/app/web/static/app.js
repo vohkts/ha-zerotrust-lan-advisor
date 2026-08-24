@@ -59,10 +59,22 @@ if (unifiTestBtn) {
 
     try {
       const response = await fetch("settings/unifi/test", { method: "POST", body: new FormData(fieldset) });
-      const body = await response.json();
+      const rawText = await response.text();
+      let body;
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        // Something between the browser and this add-on (Ingress, a proxy
+        // timeout) answered with a non-JSON page instead of our route ever
+        // running — show what actually came back rather than a fixed
+        // string that hides it.
+        resultEl.textContent = `Unexpected response (HTTP ${response.status}): ${rawText.slice(0, 200) || "(empty body)"}`;
+        resultEl.classList.add("unifi-test-fail");
+        return;
+      }
       if (!response.ok) {
         const messages = { missing_host: "Enter a console IP or hostname first.", missing_api_key: "Enter an API key first." };
-        resultEl.textContent = messages[body.error] || body.detail || "Connection test failed.";
+        resultEl.textContent = messages[body.error] || body.detail || `Connection test failed (${body.error || response.status}).`;
         resultEl.classList.add("unifi-test-fail");
       } else {
         const lines = body.capabilities.map((c) => `${c.ok ? "✓" : "✗"} ${c.label} — ${c.detail}`);
@@ -70,7 +82,7 @@ if (unifiTestBtn) {
         resultEl.classList.add(body.any_capability_ok ? "unifi-test-ok" : "unifi-test-fail");
       }
     } catch (err) {
-      resultEl.textContent = "Something went wrong — check the add-on logs.";
+      resultEl.textContent = `Request failed: ${err.message}`;
       resultEl.classList.add("unifi-test-fail");
     } finally {
       unifiTestBtn.disabled = false;

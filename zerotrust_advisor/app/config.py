@@ -102,6 +102,10 @@ def read_secret(name: str) -> str | None:
     return path.read_text().strip() or None
 
 
+def remove_secret(name: str) -> None:
+    (SECRETS_DIR / name).unlink(missing_ok=True)
+
+
 def write_secret(name: str, value: str) -> None:
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
     path = SECRETS_DIR / name
