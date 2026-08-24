@@ -8,6 +8,7 @@ import time
 from flask import Blueprint, current_app, render_template
 
 from app.analysis.coverage import CoverageInputs, evaluate_coverage
+from app.analysis.direction import INTERNAL_INTERNAL, classify_direction
 from app.analysis.netlabels import label_for_ip, parse_network_labels
 from app.health import read_health
 from app.web.db_context import get_db
@@ -48,6 +49,10 @@ def _gather_coverage_inputs(conn, config, now: float) -> CoverageInputs:
     flow_rows = conn.execute(
         "SELECT src_ip, dst_ip FROM events_flow WHERE ts_start >= ? LIMIT ?", (since, _MAX_ROWS_SCANNED)
     ).fetchall()
+    all_rows = fw_rows + flow_rows
+    internal_internal_matches = sum(
+        1 for src, dst in all_rows if classify_direction(src, dst) == INTERNAL_INTERNAL
+    )
 
     return CoverageInputs(
         now=now,
@@ -57,6 +62,8 @@ def _gather_coverage_inputs(conn, config, now: float) -> CoverageInputs:
         rejected_flow_count=netflow_health.get("rejected", 0),
         inter_vlan_firewall_matches=_inter_vlan_count(fw_rows, labels),
         inter_vlan_flow_matches=_inter_vlan_count(flow_rows, labels),
+        total_matches=len(all_rows),
+        internal_internal_matches=internal_internal_matches,
     )
 
 

@@ -19,7 +19,7 @@ import time
 
 from app.config import load_config
 from app.db import connect
-from app.health import HealthReporter
+from app.health import HealthReporter, read_health
 from app.sanitize.classify import classify
 
 _MDNS_GROUP = "224.0.0.251"
@@ -145,7 +145,10 @@ def main() -> None:
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
     sock.settimeout(1.0)
 
-    health.update(hostnames_seen=0, last_event_at=None)
+    # Carries forward from the previous run rather than resetting to zero —
+    # see syslog_receiver.py for why.
+    previous = read_health(config.health_dir, "mdns") or {}
+    health.update(hostnames_seen=previous.get("hostnames_seen", 0), last_event_at=previous.get("last_event_at"))
     last_arp_scan = 0.0
     arp_table: dict[str, str] = {}
 

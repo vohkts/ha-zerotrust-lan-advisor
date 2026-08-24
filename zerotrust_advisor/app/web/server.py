@@ -19,6 +19,7 @@ from app.web.db_context import close_db
 from app.web.routes_recommendations import recommendations_bp
 from app.web.routes_settings import settings_bp
 from app.web.routes_setup import setup_bp
+from app.web.routes_traffic import traffic_bp
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def create_app() -> Flask:
     app.config["ZTA_CONFIG"] = load_config()
 
     app.register_blueprint(setup_bp)
+    app.register_blueprint(traffic_bp)
     app.register_blueprint(recommendations_bp)
     app.register_blueprint(settings_bp)
 

@@ -17,6 +17,8 @@ def _inputs(**overrides):
         rejected_flow_count=0,
         inter_vlan_firewall_matches=0,
         inter_vlan_flow_matches=0,
+        total_matches=0,
+        internal_internal_matches=0,
     )
     base.update(overrides)
     return CoverageInputs(**base)
@@ -47,6 +49,28 @@ def test_stale_syslog_feed_is_flagged():
 def test_no_flow_data_mirrors_syslog_logic():
     warnings = evaluate_coverage(_inputs(last_flow_event_at=None, rejected_flow_count=5))
     assert "flow_wrong_source" in [w.code for w in warnings]
+
+
+def test_no_internal_traffic_flagged_when_everything_is_external():
+    warnings = evaluate_coverage(_inputs(total_matches=500, internal_internal_matches=0))
+    codes = [w.code for w in warnings]
+    assert "no_internal_traffic_seen" in codes
+    warning = next(w for w in warnings if w.code == "no_internal_traffic_seen")
+    assert warning.severity == "info"
+
+
+def test_no_internal_traffic_not_flagged_once_any_internal_traffic_seen():
+    warnings = evaluate_coverage(_inputs(total_matches=500, internal_internal_matches=1))
+    assert "no_internal_traffic_seen" not in [w.code for w in warnings]
+
+
+def test_no_internal_traffic_not_flagged_with_no_data_at_all():
+    # Nothing observed yet at all — the generic syslog_none/flow_none
+    # warnings already cover that; this check shouldn't pile on.
+    warnings = evaluate_coverage(
+        _inputs(last_firewall_event_at=None, last_flow_event_at=None, total_matches=0, internal_internal_matches=0)
+    )
+    assert "no_internal_traffic_seen" not in [w.code for w in warnings]
 
 
 def test_east_west_gap_detected_when_firewall_sees_it_but_flow_never_does():

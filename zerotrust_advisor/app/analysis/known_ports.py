@@ -3,6 +3,8 @@ networks. This is not meant to be exhaustive — it's a cheap local nudge the
 LLM prompt can lean on, not a replacement for it reasoning about the
 device-class context around a flow."""
 
+PROTO_NAMES: dict[int, str] = {6: "TCP", 17: "UDP", 1: "ICMP"}
+
 KNOWN_PORTS: dict[tuple[int, int], str] = {
     (6, 7000): "AirPlay",
     (6, 7001): "AirPlay",

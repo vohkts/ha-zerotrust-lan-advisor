@@ -15,7 +15,7 @@ import time
 from app.config import load_config
 from app.db import connect, prune
 from app.firewall_parse import UnparsableLine, parse_firewall_line
-from app.health import HealthReporter
+from app.health import HealthReporter, read_health
 
 _PRUNE_INTERVAL_SECONDS = 3600
 
@@ -40,7 +40,18 @@ def main() -> None:
     sock.bind(("0.0.0.0", config.syslog_port))
     sock.settimeout(1.0)
 
-    health.update(accepted=0, rejected=0, parsed=0, unparsed=0, last_event_at=None)
+    # Counters carry forward from the previous run's health file rather than
+    # resetting to zero, so a routine add-on restart doesn't make it look
+    # like traffic stopped arriving — the underlying data (and the coverage
+    # checks built on it) were never actually affected by the restart.
+    previous = read_health(config.health_dir, "syslog") or {}
+    health.update(
+        accepted=previous.get("accepted", 0),
+        rejected=previous.get("rejected", 0),
+        parsed=previous.get("parsed", 0),
+        unparsed=previous.get("unparsed", 0),
+        last_event_at=previous.get("last_event_at"),
+    )
 
     last_prune = time.time()
 

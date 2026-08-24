@@ -5,9 +5,7 @@ text lives, so wording changes don't need to be hunted across the codebase.
 from __future__ import annotations
 
 from app.analysis.grouping import CandidatePattern
-from app.analysis.known_ports import describe_port
-
-_PROTO_NAMES = {6: "TCP", 17: "UDP", 1: "ICMP"}
+from app.analysis.known_ports import PROTO_NAMES, describe_port
 
 RECOMMENDATION_SCHEMA = {
     "type": "json_schema",
@@ -52,7 +50,7 @@ def build_recommendation_messages(
     dst_confidence: str,
 ) -> list[dict]:
     port_hint = describe_port(pattern.proto, pattern.dst_port)
-    proto_name = _PROTO_NAMES.get(pattern.proto, str(pattern.proto))
+    proto_name = PROTO_NAMES.get(pattern.proto, str(pattern.proto))
     port_desc = pattern.dst_port if pattern.dst_port is not None else "any"
 
     lines = [

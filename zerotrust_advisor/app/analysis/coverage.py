@@ -24,6 +24,8 @@ class CoverageInputs:
     rejected_flow_count: int
     inter_vlan_firewall_matches: int
     inter_vlan_flow_matches: int
+    total_matches: int
+    internal_internal_matches: int
     stale_after_seconds: int = 3600
 
 
@@ -90,6 +92,17 @@ def evaluate_coverage(inputs: CoverageInputs) -> list[GapWarning]:
                 "warning",
                 f"No flow data in over {inputs.stale_after_seconds // 60} minutes — "
                 "check the export is still configured.",
+            )
+        )
+
+    if inputs.total_matches > 0 and inputs.internal_internal_matches == 0:
+        warnings.append(
+            GapWarning(
+                "no_internal_traffic_seen",
+                "info",
+                "Everything seen so far is to or from a public IP — no confirmed traffic between two devices "
+                "on your own private networks yet. Expected briefly right after setup; if it persists, check "
+                "that logging covers LAN-to-LAN rules too, not just WAN-facing ones.",
             )
         )
 

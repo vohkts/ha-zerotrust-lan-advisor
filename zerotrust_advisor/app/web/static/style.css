@@ -116,6 +116,31 @@ fieldset textarea, fieldset select {
 
 .hint { color: var(--muted); font-size: 0.85rem; }
 
+.direction-stats {
+  display: flex;
+  gap: 1rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+.direction-stats .stat {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  min-width: 150px;
+  text-align: center;
+}
+.direction-stats .stat-value {
+  display: block;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+.direction-stats .stat-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
 .host-ip {
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 1.1rem;

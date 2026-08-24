@@ -10,7 +10,7 @@ import time
 
 from app.config import load_config
 from app.db import connect, prune
-from app.health import HealthReporter
+from app.health import HealthReporter, read_health
 from app.netflow_decode import TemplateCache, decode_packet
 
 _PRUNE_INTERVAL_SECONDS = 3600
@@ -37,7 +37,15 @@ def main() -> None:
     sock.bind(("0.0.0.0", config.netflow_port))
     sock.settimeout(1.0)
 
-    health.update(accepted=0, rejected=0, decoded_flows=0, last_event_at=None)
+    # Carries forward from the previous run rather than resetting to zero —
+    # see syslog_receiver.py for why.
+    previous = read_health(config.health_dir, "netflow") or {}
+    health.update(
+        accepted=previous.get("accepted", 0),
+        rejected=previous.get("rejected", 0),
+        decoded_flows=previous.get("decoded_flows", 0),
+        last_event_at=previous.get("last_event_at"),
+    )
 
     last_prune = time.time()
 

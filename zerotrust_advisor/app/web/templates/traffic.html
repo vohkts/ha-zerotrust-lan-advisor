@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Traffic</h2>
+<p class="hint">Last {{ window_days }} days, {{ total_events }} events. Real local IPs/hostnames — this page
+   never leaves the box, so nothing here is pseudonymized.</p>
+
+<section>
+  <h3>Are we seeing traffic between hosts on your own networks?</h3>
+  {% set ii = direction_counts.get('internal_internal', 0) %}
+  {% set ie = direction_counts.get('internal_external', 0) %}
+  {% set ee = direction_counts.get('external_external', 0) %}
+  <div class="direction-stats">
+    <div class="stat">
+      <span class="stat-value">{{ ii }}</span>
+      <span class="stat-label">internal &harr; internal<br>(LAN-to-LAN)</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">{{ ie }}</span>
+      <span class="stat-label">internal &harr; external<br>(WAN-crossing)</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">{{ ee }}</span>
+      <span class="stat-label">external &harr; external<br>(unusual)</span>
+    </div>
+  </div>
+  {% if total_events == 0 %}
+    <p class="hint">No events yet — nothing to assess.</p>
+  {% elif ii == 0 %}
+    <p class="chip chip-warn">Only WAN-crossing traffic confirmed so far — no LAN-to-LAN traffic seen yet.
+       See the Setup screen for what that usually means.</p>
+  {% else %}
+    <p class="chip chip-ok">Confirmed: this add-on is seeing real traffic between devices on your own networks,
+       not just incoming/outgoing WAN traffic.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Identified networks</h3>
+  {% if not network_rows %}
+    <p class="hint">No network labels configured yet — set them in Settings to see this broken out by network.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Network</th><th>CIDR</th><th>Distinct hosts</th><th>Events</th></tr></thead>
+    <tbody>
+      {% for n in network_rows %}
+      <tr><td>{{ n.label }}</td><td>{{ n.cidr }}</td><td>{{ n.hosts }}</td><td>{{ n.events }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Hosts (top {{ host_rows | length }})</h3>
+  {% if not host_rows %}
+    <p class="hint">No events yet.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Host</th><th>Network</th><th>Class</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {% for h in host_rows %}
+      <tr>
+        <td>{{ h.ip }}</td>
+        <td>{{ h.network }}</td>
+        <td>{{ h.device_class }} <span class="hint">({{ h.confidence }})</span></td>
+        <td>{{ h.events }}</td>
+        <td>{{ h.first_seen | fmt_time }}</td>
+        <td>{{ h.last_seen | fmt_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Top flows by volume (top {{ top_flows | length }})</h3>
+  {% if not top_flows %}
+    <p class="hint">No events yet.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Source</th><th>Destination</th><th>Proto/Port</th><th>Count</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {% for f in top_flows %}
+      <tr>
+        <td>{{ f.src }} <span class="hint">({{ f.src_network }})</span></td>
+        <td>{{ f.dst }} <span class="hint">({{ f.dst_network }})</span></td>
+        <td>{{ f.proto }}/{{ f.port if f.port is not none else 'any' }}
+            {% if f.port_hint %}<span class="hint">— {{ f.port_hint }}</span>{% endif %}</td>
+        <td>{{ f.count }}</td>
+        <td>{{ f.last_seen | fmt_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Recent unique flow examples (up to {{ recent_examples | length }})</h3>
+  <p class="hint">Deduplicated by source/destination/protocol/port, most recent first — not a raw log.</p>
+  {% if not recent_examples %}
+    <p class="hint">No events yet.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Source</th><th>Destination</th><th>Proto/Port</th><th>Seen (in window)</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {% for f in recent_examples %}
+      <tr>
+        <td>{{ f.src }} <span class="hint">({{ f.src_network }})</span></td>
+        <td>{{ f.dst }} <span class="hint">({{ f.dst_network }})</span></td>
+        <td>{{ f.proto }}/{{ f.port if f.port is not none else 'any' }}
+            {% if f.port_hint %}<span class="hint">— {{ f.port_hint }}</span>{% endif %}</td>
+        <td>{{ f.count }}</td>
+        <td>{{ f.last_seen | fmt_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}
