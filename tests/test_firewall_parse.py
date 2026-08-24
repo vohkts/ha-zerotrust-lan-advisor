@@ -50,3 +50,32 @@ def test_ports_out_of_range_are_dropped_not_the_whole_line():
     event = parse_firewall_line(line)
     assert event.src_port is None
     assert event.dst_port == 80
+
+
+@pytest.mark.parametrize(
+    "rule_prefix,expected_action",
+    [
+        ("LOCAL_WAN-A-2147483647", "ALLOW"),
+        ("LAN_LOCAL-A-30000", "ALLOW"),
+        ("WAN_LOCAL-D-10000", "DROP"),
+        ("Internal->Internal-R-5000", "REJECT"),
+    ],
+)
+def test_action_derived_from_unifi_rule_prefix_when_no_explicit_token(rule_prefix, expected_action):
+    # Real UniFi/EdgeOS logs don't emit ACTION= at all — the verdict is
+    # baked into the auto-generated rule description itself.
+    line = f"kernel: [{rule_prefix}] IN= OUT=ppp1 SRC=192.168.1.1 DST=8.8.8.8 PROTO=UDP SPT=1000 DPT=53"
+    event = parse_firewall_line(line)
+    assert event.action == expected_action
+
+
+def test_explicit_action_token_wins_over_rule_prefix_inference():
+    line = "kernel: [LOCAL_WAN-A-2147483647] SRC=192.168.1.1 DST=8.8.8.8 PROTO=UDP ACTION=DROP"
+    event = parse_firewall_line(line)
+    assert event.action == "DROP"
+
+
+def test_rule_prefix_without_action_code_leaves_action_none():
+    line = "kernel: [Internal->Internal::Block] SRC=192.168.1.1 DST=8.8.8.8 PROTO=UDP"
+    event = parse_firewall_line(line)
+    assert event.action is None

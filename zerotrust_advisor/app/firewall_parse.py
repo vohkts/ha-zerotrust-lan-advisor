@@ -25,6 +25,15 @@ _PROTO_NAMES = {"tcp": 6, "udp": 17, "icmp": 1}
 
 _REQUIRED_FIELDS = ("SRC", "DST")
 
+# UniFi/EdgeOS-derived firewalls don't emit a separate ACTION= token — the
+# verdict is baked into the auto-generated rule description itself, as a
+# single letter between dashes: RULESET-A-PRIORITY (Accept), -D- (Drop),
+# -R- (Reject). Confirmed against real firewall log lines, not guessed —
+# every line ingested before this existed had a silently-None action,
+# which the recommendation engine was treating as "always blocked".
+_RULE_ACTION_RE = re.compile(r"-([ADR])-\d+$")
+_RULE_ACTION_NAMES = {"A": "ALLOW", "D": "DROP", "R": "REJECT"}
+
 
 class UnparsableLine(ValueError):
     pass
@@ -82,6 +91,13 @@ def parse_firewall_line(line: str) -> FirewallEvent:
         raise UnparsableLine("missing or invalid PROTO")
 
     prefix_match = _RULE_PREFIX_RE.search(line)
+    rule_prefix = prefix_match.group(1)[:128] if prefix_match else None
+
+    action = tokens.get("ACTION")
+    if action is None and rule_prefix:
+        action_match = _RULE_ACTION_RE.search(rule_prefix)
+        if action_match:
+            action = _RULE_ACTION_NAMES[action_match.group(1)]
 
     return FirewallEvent(
         src_ip=src_ip,
@@ -91,6 +107,6 @@ def parse_firewall_line(line: str) -> FirewallEvent:
         proto=proto,
         iface_in=tokens.get("IN")[:32] if tokens.get("IN") else None,
         iface_out=tokens.get("OUT")[:32] if tokens.get("OUT") else None,
-        rule_prefix=prefix_match.group(1)[:128] if prefix_match else None,
-        action=tokens.get("ACTION"),
+        rule_prefix=rule_prefix,
+        action=action,
     )
