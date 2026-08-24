@@ -2,7 +2,7 @@ ARG BUILD_FROM
 FROM ${BUILD_FROM} AS llama-builder
 
 # Pin a known-good llama.cpp release rather than tracking main.
-ARG LLAMA_CPP_REF=b4713
+ARG LLAMA_CPP_REF=b10612
 
 # BUILD_SHARED_LIBS=OFF: the default build produces llama-server dynamically
 # linked against several sibling libggml*/libllama .so files that live only
@@ -10,14 +10,18 @@ ARG LLAMA_CPP_REF=b4713
 # it unable to resolve its own symbols at runtime ("Error relocating
 # /usr/local/bin/llama-server: ...: symbol not found"), caught only once
 # actually deployed since a static binary has no such dependency to miss.
-RUN apk add --no-cache build-base cmake git \
+# curl-dev: without it, cmake silently builds llama-server with its -hf
+# (fetch straight from Hugging Face) option disabled — found only by
+# actually running it ("built without libcurl, downloading ... not
+# supported"), not by the build succeeding.
+RUN apk add --no-cache build-base cmake git curl-dev linux-headers \
     && git clone --depth 1 --branch ${LLAMA_CPP_REF} https://github.com/ggml-org/llama.cpp.git /src/llama.cpp \
-    && cmake -S /src/llama.cpp -B /src/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF \
+    && cmake -S /src/llama.cpp -B /src/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DLLAMA_CURL=ON \
     && cmake --build /src/llama.cpp/build --target llama-server -j"$(nproc)"
 
 FROM ${BUILD_FROM}
 
-RUN apk add --no-cache python3 py3-pip libgomp libstdc++
+RUN apk add --no-cache python3 py3-pip libgomp libstdc++ curl
 
 COPY --from=llama-builder /src/llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
 

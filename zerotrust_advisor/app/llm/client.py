@@ -21,9 +21,17 @@ def chat_completion(
     model: str = "default",
     api_key: str | None = None,
     response_format: dict | None = None,
-    timeout: float = 60.0,
+    timeout: float = 180.0,
 ) -> str:
-    """Returns the assistant's reply text."""
+    """Returns the assistant's reply text.
+
+    180s default: a grammar-constrained structured completion from the
+    bundled 3B model on CPU-only hardware can genuinely take over a minute
+    once the model is already resident — measured directly, not guessed.
+    Remote OpenAI-compatible calls finish far sooner in practice, so this
+    errs toward "local mode never times out on a slow home server" rather
+    than "remote mode fails fast."
+    """
     payload: dict = {"model": model, "messages": messages}
     if response_format is not None:
         payload["response_format"] = response_format
