@@ -197,6 +197,13 @@ function setupTable(table) {
   let page = 0;
 
   function render() {
+    // Any expand-on-click detail row (see the Hosts table) is inserted
+    // into the DOM after this table's row snapshot was taken, so it isn't
+    // one of allRows and paging away from it would leave it orphaned and
+    // visible under whatever page happens to be showing next — simplest
+    // fix is to always collapse it on any page change.
+    for (const row of tbody.querySelectorAll(".host-detail-row")) row.remove();
+
     const matching = query ? allRows.filter((row) => row.textContent.toLowerCase().includes(query)) : allRows;
     const totalPages = Math.max(1, Math.ceil(matching.length / TABLE_PAGE_SIZE));
     if (page >= totalPages) page = 0;
@@ -246,10 +253,262 @@ function setupTable(table) {
   render();
 }
 
-document.querySelectorAll("table.status-table").forEach(setupTable);
+// [data-no-paginate] opts a table out entirely — the Live View table
+// manages its own rows via a continuous poll (see live.html); paginating
+// it against a snapshot of rows taken at page-load time would silently
+// stop reflecting anything appended after that snapshot.
+document.querySelectorAll("table.status-table:not([data-no-paginate])").forEach(setupTable);
 
 document.querySelectorAll("[data-filter-for]").forEach((input) => {
   const table = document.getElementById(input.dataset.filterFor);
   if (!table || !table._ztaSetFilter) return;
   input.addEventListener("input", () => table._ztaSetFilter(input.value));
 });
+
+// Live View — polls for new firewall events and appends them to a
+// continuously-growing table (capped at MAX_ROWS, trimming the oldest).
+// Off by default: nothing is fetched until Start is clicked. Stop halts
+// polling but leaves the table exactly as it was; Clear only empties the
+// table, independent of whether polling is currently active.
+const liveToggleBtn = document.getElementById("live-toggle");
+if (liveToggleBtn) {
+  const tbody = document.getElementById("live-table-body");
+  const statusDot = document.getElementById("live-status-dot");
+  const statusText = document.getElementById("live-status-text");
+  const emptyHint = document.getElementById("live-empty-hint");
+  const clearBtn = document.getElementById("live-clear");
+  const MAX_ROWS = 300;
+  const POLL_MS = 1500;
+
+  let cursor = 0;
+  let pollTimer = null;
+  let active = false;
+
+  function cell(text) {
+    const td = document.createElement("td");
+    td.textContent = text;
+    return td;
+  }
+
+  function addRow(ev) {
+    const tr = document.createElement("tr");
+    tr.className = "live-row-new";
+
+    const port = ev.dst_port != null ? ev.dst_port : "any";
+    const portCell = `${ev.proto}/${port}` + (ev.port_hint ? ` — ${ev.port_hint}` : "");
+    const srcCell = ev.src_ip + (ev.src_port ? `:${ev.src_port}` : "");
+
+    const statusTd = document.createElement("td");
+    const chip = document.createElement("span");
+    chip.className = `chip ${ev.blocked ? "chip-danger" : "chip-ok"}`;
+    chip.textContent = ev.action || (ev.blocked ? "blocked" : "allowed");
+    statusTd.appendChild(chip);
+
+    tr.append(
+      cell(new Date(ev.ts * 1000).toLocaleTimeString()),
+      cell(srcCell),
+      cell(ev.dst_ip),
+      cell(portCell),
+      statusTd,
+    );
+    tbody.insertBefore(tr, tbody.firstChild);
+    while (tbody.children.length > MAX_ROWS) tbody.removeChild(tbody.lastChild);
+    emptyHint.hidden = true;
+  }
+
+  async function poll() {
+    try {
+      const body = await (await fetch(`live/events?since_id=${cursor}`)).json();
+      cursor = body.max_id;
+      for (const ev of body.events) addRow(ev);
+    } catch {
+      // A missed poll just means one gap in an otherwise live feed — the next tick retries.
+    }
+  }
+
+  async function start() {
+    try {
+      cursor = (await (await fetch("live/events")).json()).max_id;
+    } catch {
+      cursor = 0;
+    }
+    active = true;
+    liveToggleBtn.textContent = "Stop";
+    statusDot.classList.add("live-active");
+    statusText.textContent = "Live — watching for new events…";
+    pollTimer = setInterval(poll, POLL_MS);
+  }
+
+  function stop() {
+    active = false;
+    clearInterval(pollTimer);
+    liveToggleBtn.textContent = "Start";
+    statusDot.classList.remove("live-active");
+    statusText.textContent = "Stopped";
+  }
+
+  liveToggleBtn.addEventListener("click", () => (active ? stop() : start()));
+  clearBtn.addEventListener("click", () => {
+    tbody.replaceChildren();
+    emptyHint.hidden = false;
+  });
+}
+
+// Hosts table: click a row to expand an inline panel with its behavior
+// detail (see routes_traffic.py's /traffic/host-detail). Built with plain
+// DOM calls throughout, never innerHTML with fetched text — a device's
+// hostname (mDNS/UniFi-sourced) or an LLM's own guess text both come from
+// outside this app's control, however unlikely either is to be hostile.
+document.addEventListener("click", async (event) => {
+  const row = event.target.closest("tr[data-host-ip]");
+  if (!row) return;
+
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains("host-detail-row")) {
+    existing.remove();
+    return;
+  }
+  // Collapse any other open panel in this table — one at a time keeps it simple.
+  for (const open of row.closest("tbody").querySelectorAll(".host-detail-row")) open.remove();
+
+  const ip = row.dataset.hostIp;
+  const colCount = row.children.length;
+  const detailRow = document.createElement("tr");
+  detailRow.className = "host-detail-row";
+  const detailCell = document.createElement("td");
+  detailCell.colSpan = colCount;
+  detailCell.textContent = "Loading…";
+  detailRow.appendChild(detailCell);
+  row.after(detailRow);
+
+  await loadAndRenderHostDetail(ip, detailCell);
+});
+
+function labeledList(title, items, formatItem) {
+  const wrap = document.createElement("div");
+  wrap.className = "host-detail-block";
+  const h = document.createElement("h4");
+  h.textContent = title;
+  wrap.appendChild(h);
+  if (items.length === 0) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "None observed.";
+    wrap.appendChild(p);
+    return wrap;
+  }
+  const ul = document.createElement("ul");
+  ul.className = "host-detail-list";
+  for (const item of items) {
+    const li = document.createElement("li");
+    formatItem(li, item);
+    ul.appendChild(li);
+  }
+  wrap.appendChild(ul);
+  return wrap;
+}
+
+async function loadAndRenderHostDetail(ip, container) {
+  let data;
+  try {
+    data = await (await fetch(`traffic/host-detail?ip=${encodeURIComponent(ip)}`)).json();
+  } catch (err) {
+    container.textContent = `Failed to load: ${err.message}`;
+    return;
+  }
+
+  container.replaceChildren();
+  const root = document.createElement("div");
+  root.className = "host-detail";
+
+  const summary = document.createElement("p");
+  summary.className = "hint";
+  summary.textContent =
+    `${data.event_count} event(s) in the last ${data.window_days} days` +
+    (data.first_seen ? ` — first seen ${new Date(data.first_seen * 1000).toLocaleString()}` : "");
+  root.appendChild(summary);
+
+  root.appendChild(
+    labeledList("Most common ports", data.top_ports, (li, p) => {
+      const port = p.port != null ? p.port : "any";
+      li.textContent = `${p.proto}/${port}${p.port_hint ? " — " + p.port_hint : ""} — ${p.count} time(s)`;
+    })
+  );
+
+  root.appendChild(
+    labeledList("Talks to most often", data.top_partners, (li, partner) => {
+      const label = partner.name || partner.device_class || partner.ip;
+      li.textContent = `${label} (${partner.network}) — ${partner.count} time(s)`;
+    })
+  );
+
+  root.appendChild(
+    labeledList("Recent distinct flows", data.recent_flows, (li, f) => {
+      const port = f.port != null ? f.port : "any";
+      li.textContent =
+        `${f.src} (${f.src_network}) → ${f.dst} (${f.dst_network}) — ${f.proto}/${port}` +
+        `${f.port_hint ? " — " + f.port_hint : ""} — ${f.count}x`;
+    })
+  );
+
+  if (data.device_class === "Unclassified device") {
+    const guessBlock = document.createElement("div");
+    guessBlock.className = "host-detail-block";
+    const h = document.createElement("h4");
+    h.textContent = "What might this be?";
+    guessBlock.appendChild(h);
+
+    if (data.llm_guess) {
+      const p = document.createElement("p");
+      p.textContent = data.llm_guess;
+      guessBlock.appendChild(p);
+    } else if (data.guess_in_progress) {
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = "Generating a guess (can take up to a minute)…";
+      guessBlock.appendChild(p);
+      pollForGuess(ip, guessBlock, p);
+    } else {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Guess with AI";
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        const p = document.createElement("p");
+        p.className = "hint";
+        p.textContent = "Generating a guess (can take up to a minute)…";
+        guessBlock.replaceChildren(h, p);
+        try {
+          await fetch(`traffic/host-detail/guess?ip=${encodeURIComponent(ip)}`, { method: "POST" });
+        } catch {
+          // Fall through to polling regardless — it'll just find no guess yet.
+        }
+        pollForGuess(ip, guessBlock, p);
+      });
+      guessBlock.appendChild(btn);
+    }
+    root.appendChild(guessBlock);
+  }
+
+  container.appendChild(root);
+}
+
+function pollForGuess(ip, guessBlock, statusEl) {
+  const timer = setInterval(async () => {
+    let data;
+    try {
+      data = await (await fetch(`traffic/host-detail?ip=${encodeURIComponent(ip)}`)).json();
+    } catch {
+      return;
+    }
+    if (data.llm_guess) {
+      clearInterval(timer);
+      const p = document.createElement("p");
+      p.textContent = data.llm_guess;
+      statusEl.replaceWith(p);
+    } else if (!data.guess_in_progress) {
+      clearInterval(timer);
+      statusEl.textContent = "Something went wrong generating a guess — check the add-on logs.";
+    }
+  }, 4000);
+}

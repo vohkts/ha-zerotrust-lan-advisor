@@ -69,3 +69,60 @@ def build_recommendation_messages(
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": "\n".join(lines)},
     ]
+
+
+DEVICE_GUESS_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "device_guess",
+        "schema": {
+            "type": "object",
+            "properties": {"guess": {"type": "string"}},
+            "required": ["guess"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+_DEVICE_GUESS_SYSTEM_PROMPT = (
+    "You help a home network owner figure out what an unidentified device on their network "
+    "probably is, from nothing but its observed network behavior. You are never told the "
+    "device's real IP, MAC or hostname — only its network hardware vendor (if known) and a "
+    "summary of what it talks to. In 2-4 sentences, give your best guess at what kind of device "
+    "this is and explain what in the evidence points that way. If the evidence is too thin or "
+    "generic to guess anything specific, say so plainly rather than inventing a confident-sounding "
+    "answer — 'not enough information to guess' is a better answer than a wrong one."
+)
+
+
+def build_device_guess_messages(
+    vendor: str | None,
+    event_count: int,
+    top_ports: list[tuple[str, int, str | None]],
+    top_partners: list[tuple[str, str | None, int]],
+) -> list[dict]:
+    """`top_ports`: (proto_name, port_or_None, port_hint_or_None) most
+    common destinations this device connects to, each with an occurrence
+    count already folded into the ordering. `top_partners`: (network_label,
+    device_class_or_None, count) — who it talks to, never a real IP/MAC."""
+    lines = [f"Vendor (from MAC OUI): {vendor or 'unknown'}", f"Total observed events: {event_count}"]
+
+    if top_ports:
+        lines.append("Most common destination ports:")
+        for proto, port, hint in top_ports:
+            port_desc = port if port is not None else "any"
+            hint_text = f" ({hint})" if hint else ""
+            lines.append(f"  - {proto}/{port_desc}{hint_text}")
+    else:
+        lines.append("No destination port data available.")
+
+    if top_partners:
+        lines.append("Most common things it talks to:")
+        for network, device_class, count in top_partners:
+            partner_desc = device_class or "an unclassified device"
+            lines.append(f"  - {partner_desc} on network '{network}', {count} time(s)")
+
+    return [
+        {"role": "system", "content": _DEVICE_GUESS_SYSTEM_PROMPT},
+        {"role": "user", "content": "\n".join(lines)},
+    ]

@@ -126,6 +126,39 @@ def test_connect_migrates_an_existing_unifi_clients_table_missing_client_type(tm
     assert row[1] is None
 
 
+def test_connect_migrates_an_existing_identities_table_missing_llm_guess_columns(tmp_path):
+    db_path = tmp_path / "zerotrust.db"
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute(
+        """CREATE TABLE identities (
+               device_key TEXT PRIMARY KEY,
+               ip TEXT,
+               mac TEXT,
+               hostname TEXT,
+               vendor TEXT,
+               device_class TEXT,
+               class_confidence TEXT,
+               first_seen REAL NOT NULL,
+               last_seen REAL NOT NULL
+           )"""
+    )
+    old_conn.execute(
+        "INSERT INTO identities (device_key, ip, hostname, device_class, class_confidence, first_seen, last_seen) "
+        "VALUES ('d1', '10.0.0.9', 'iPhone', 'iPhone', 'high', 1700000000, 1700000000)"
+    )
+    old_conn.commit()
+    old_conn.close()
+
+    conn = db.connect(db_path)  # must not raise
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(identities)")}
+    assert {"llm_guess", "llm_guess_at"} <= columns
+
+    row = conn.execute("SELECT hostname, llm_guess FROM identities WHERE device_key = 'd1'").fetchone()
+    assert row[0] == "iPhone"  # the old row survived intact
+    assert row[1] is None
+
+
 def test_connect_is_idempotent_on_an_already_migrated_database(tmp_path):
     db_path = tmp_path / "zerotrust.db"
     db.connect(db_path)

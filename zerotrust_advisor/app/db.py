@@ -45,6 +45,10 @@ CREATE INDEX IF NOT EXISTS idx_events_flow_pair ON events_flow(src_ip, dst_ip);
 -- device_key is the MAC when known, otherwise the IP — a stable local
 -- handle for "the same device", independent of the pseudonym token used
 -- when anything about this device is sent to the LLM (see pseudonym_map).
+-- llm_guess/llm_guess_at: an on-demand, cached LLM guess at what an
+-- Unclassified device might be, from its observed ports/flows -- never
+-- generated automatically (an LLM call is slow), only when the user asks
+-- for one from the Hosts table's expanded detail view. NULL until then.
 CREATE TABLE IF NOT EXISTS identities (
     device_key TEXT PRIMARY KEY,
     ip TEXT,
@@ -54,7 +58,9 @@ CREATE TABLE IF NOT EXISTS identities (
     device_class TEXT,
     class_confidence TEXT,
     first_seen REAL NOT NULL,
-    last_seen REAL NOT NULL
+    last_seen REAL NOT NULL,
+    llm_guess TEXT,
+    llm_guess_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_identities_ip ON identities(ip);
 
@@ -202,6 +208,8 @@ _COLUMN_MIGRATIONS = [
     ("recommendations", "category", "TEXT NOT NULL DEFAULT 'zero_trust'"),
     ("unifi_clients", "connected_at", "TEXT"),
     ("unifi_clients", "client_type", "TEXT"),
+    ("identities", "llm_guess", "TEXT"),
+    ("identities", "llm_guess_at", "REAL"),
 ]
 
 

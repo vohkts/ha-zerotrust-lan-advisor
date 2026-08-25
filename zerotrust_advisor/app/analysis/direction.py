@@ -13,13 +13,21 @@ from __future__ import annotations
 
 import ipaddress
 from collections import Counter
+from functools import lru_cache
 
 INTERNAL_INTERNAL = "internal_internal"
 INTERNAL_EXTERNAL = "internal_external"
 EXTERNAL_EXTERNAL = "external_external"
 
 
+@lru_cache(maxsize=4096)
 def is_private_ip(ip: str) -> bool:
+    # Cached: a home network's traffic is dominated by a small, repeated
+    # set of distinct IPs, but this got called once per *event* — tens of
+    # thousands of redundant ipaddress.ip_address() parses of the same
+    # handful of strings on every Traffic page load, measured as a real
+    # contributor to the page's 1-2s load lag. Private/public-ness of a
+    # given IP string never changes, so caching it is always safe.
     try:
         return ipaddress.ip_address(ip).is_private
     except ValueError:

@@ -106,7 +106,8 @@
      order of trust. The number in parenthesis is confidence: <strong>high</strong> (hostname matched a known
      pattern, e.g. "iPhone"), <strong>medium</strong> (vendor-only, e.g. "Apple device (model unknown)"), or
      <strong>low</strong> ("Unclassified" — neither signal was available or recognized). A device staying
-     Unclassified usually means neither its hostname nor its MAC vendor gave this add-on anything to go on.</p>
+     Unclassified usually means neither its hostname nor its MAC vendor gave this add-on anything to go on.
+     Click a row to see its behavior in detail.</p>
   {% if not host_rows %}
     <p class="hint">No events yet.</p>
   {% else %}
@@ -114,7 +115,7 @@
     <thead><tr><th>Host</th><th>Network</th><th>Class</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
     <tbody>
       {% for h in host_rows %}
-      <tr>
+      <tr class="expandable-row" data-host-ip="{{ h.ip }}">
         <td>{{ h.ip }}{% if h.name %} <strong>({{ h.name }})</strong>{% endif %}</td>
         <td>{{ h.network }}</td>
         <td>

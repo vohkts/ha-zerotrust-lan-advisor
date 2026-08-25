@@ -134,7 +134,7 @@ def _confidence_for(conn: sqlite3.Connection, device_class: str) -> str:
     return row[0] if row else "low"
 
 
-def _llm_base_url(config: Config) -> tuple[str, str | None]:
+def llm_base_url(config: Config) -> tuple[str, str | None]:
     if config.llm_mode == "remote":
         return config.llm_remote_base_url, read_secret("llm_api_key")
     return "http://127.0.0.1:8080/v1", None
@@ -177,7 +177,7 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     known_signatures = _existing_signatures(conn)
     new_patterns = [p for p in patterns if p.signature not in known_signatures]
 
-    base_url, api_key = _llm_base_url(config)
+    base_url, api_key = llm_base_url(config)
     written = 0
     for pattern in new_patterns:
         src_confidence = _confidence_for(conn, pattern.src_class)

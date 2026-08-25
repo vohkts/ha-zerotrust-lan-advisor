@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Live View</h2>
+<p class="hint">Real firewall events as they arrive — source, destination, port, and the allow/block verdict.
+   Polled, not a true stream, so there can be a second or two of delay. Off by default; nothing is fetched
+   until you click Start. Stopping keeps whatever's on screen; Clear empties it without stopping.</p>
+
+<div class="live-controls">
+  <button type="button" id="live-toggle">Start</button>
+  <button type="button" id="live-clear">Clear</button>
+  <span class="live-status-dot" id="live-status-dot"></span>
+  <span class="hint" id="live-status-text">Stopped</span>
+</div>
+
+<section>
+  <div id="live-table-wrap">
+    <table class="status-table" id="live-table" data-no-paginate>
+      <thead>
+        <tr><th>Time</th><th>Source</th><th>Destination</th><th>Proto/Port</th><th>Status</th></tr>
+      </thead>
+      <tbody id="live-table-body"></tbody>
+    </table>
+  </div>
+  <p class="hint" id="live-empty-hint">No events yet — click Start.</p>
+</section>
+{% endblock %}

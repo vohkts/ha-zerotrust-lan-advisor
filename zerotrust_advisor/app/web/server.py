@@ -18,6 +18,7 @@ from app.config import Config, load_config
 from app.db import connect
 from app.supervisor import get_timezone
 from app.web.db_context import close_db, get_db
+from app.web.routes_live import live_bp
 from app.web.routes_network import network_bp, unifi_available
 from app.web.routes_recommendations import recommendations_bp
 from app.web.routes_setup import setup_bp
@@ -70,6 +71,7 @@ def create_app() -> Flask:
     app.register_blueprint(traffic_bp)
     app.register_blueprint(recommendations_bp)
     app.register_blueprint(network_bp)
+    app.register_blueprint(live_bp)
 
     app.teardown_appcontext(close_db)
     app.jinja_env.filters["fmt_time"] = _format_timestamp
@@ -88,9 +90,10 @@ def create_app() -> Flask:
         # under a per-install path prefix it never tells the app about, so
         # any absolute, leading-slash path would point the browser at the
         # wrong place. See templates/base.html for the same rule applied
-        # to every link this app renders. Traffic, not Setup: Setup &
-        # Settings is the last item in the nav now, not the landing page.
-        return redirect("traffic")
+        # to every link this app renders. Live View is the landing page
+        # (loads with monitoring off — see live.html — so this has no
+        # extra cost over any other page until the user clicks Start).
+        return redirect("live")
 
     return app
 
