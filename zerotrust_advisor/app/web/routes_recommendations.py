@@ -19,7 +19,7 @@ import json
 
 from flask import Blueprint, current_app, jsonify, render_template
 
-from app.analysis.runner import run_analysis_now
+from app.analysis.runner import is_running, run_analysis_now
 from app.web.db_context import get_db
 
 recommendations_bp = Blueprint("recommendations", __name__)
@@ -69,6 +69,21 @@ def update_recommendation(rec_id: int, action: str):
     conn.execute("UPDATE recommendations SET status = ? WHERE id = ?", (status, rec_id))
     conn.commit()
     return jsonify({"status": status})
+
+
+@recommendations_bp.route("/recommendations/progress")
+def progress():
+    """Polled from the GUI while a run is in flight — see static/app.js.
+    Each recommendation commits to the database the moment it's found (see
+    engine.py), so the counts here climbing in real time is a genuine
+    progress signal, not a fake spinner. Cheap COUNT queries, safe to poll
+    every few seconds."""
+    conn = get_db()
+    zero_trust_count = conn.execute(
+        "SELECT COUNT(*) FROM recommendations WHERE category = 'zero_trust'"
+    ).fetchone()[0]
+    setup_count = conn.execute("SELECT COUNT(*) FROM recommendations WHERE category = 'setup'").fetchone()[0]
+    return jsonify({"running": is_running(), "zero_trust_count": zero_trust_count, "setup_count": setup_count})
 
 
 @recommendations_bp.route("/recommendations/run-now", methods=["POST"])

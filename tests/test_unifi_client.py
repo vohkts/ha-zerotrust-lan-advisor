@@ -99,6 +99,25 @@ def test_list_clients_falls_back_to_hostname_and_mac(monkeypatch):
     assert clients[0].mac == "cc:dd"
 
 
+def test_list_networks_parses_vlan_and_subnet(monkeypatch):
+    client = _client(
+        monkeypatch,
+        {"data": [{"id": "n1", "name": "IoT", "vlanId": 10, "ipv4Subnet": "192.168.10.0/24"}]},
+    )
+    networks = client.list_networks("default")
+    assert networks[0].id == "n1"
+    assert networks[0].name == "IoT"
+    assert networks[0].vlan_id == 10
+    assert networks[0].subnet == "192.168.10.0/24"
+
+
+def test_list_networks_tolerates_a_missing_vlan_id(monkeypatch):
+    # The default/native network typically isn't tagged with a VLAN.
+    client = _client(monkeypatch, {"data": [{"id": "n1", "name": "Default", "ipv4Subnet": "192.168.1.0/24"}]})
+    networks = client.list_networks("default")
+    assert networks[0].vlan_id is None
+
+
 def test_list_firewall_zones_parses_id_and_name(monkeypatch):
     client = _client(monkeypatch, {"data": [{"id": "z1", "name": "Internal"}]})
     zones = client.list_firewall_zones("default")

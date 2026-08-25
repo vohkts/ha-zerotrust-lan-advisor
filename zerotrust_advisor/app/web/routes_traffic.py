@@ -18,10 +18,18 @@ from dataclasses import dataclass
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
-from app.analysis.direction import count_directions
+from app.analysis.direction import count_directions, is_private_ip
 from app.analysis.known_ports import PROTO_NAMES, describe_port
 from app.analysis.netlabels import parse_network_labels
-from app.analysis.network_map import NetworkMap, build_network_map, load_friendly_names, resolve_label, set_friendly_name
+from app.analysis.network_map import (
+    NetworkMap,
+    build_network_map,
+    load_friendly_names,
+    load_unifi_networks,
+    resolve_label,
+    set_friendly_name,
+    unifi_network_for_ip,
+)
 from app.web.db_context import get_db
 
 traffic_bp = Blueprint("traffic", __name__)
@@ -85,13 +93,13 @@ def _load_identities(conn) -> dict[str, dict]:
     return identities
 
 
-def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_names, manual_labels, identities) -> dict:
+def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_names, manual_labels, identities, unifi_networks=()) -> dict:
     return {
         "src": src,
-        "src_network": resolve_label(src, network_map, friendly_names, manual_labels),
+        "src_network": resolve_label(src, network_map, friendly_names, manual_labels, unifi_networks),
         "src_class": (identities.get(src) or {}).get("device_class"),
         "dst": dst,
-        "dst_network": resolve_label(dst, network_map, friendly_names, manual_labels),
+        "dst_network": resolve_label(dst, network_map, friendly_names, manual_labels, unifi_networks),
         "dst_class": (identities.get(dst) or {}).get("device_class"),
         "proto": PROTO_NAMES.get(proto, str(proto)),
         "port": port,
@@ -101,29 +109,57 @@ def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_nam
     }
 
 
-def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str]) -> list[dict]:
-    # network_map.networks is already sorted by event volume, descending.
-    return [
-        {
-            "key": net.key,
-            "kind": net.kind,
-            "guessed_range": net.guessed_range,
-            "display_name": friendly_names.get(net.key, net.guessed_range or net.key),
-            "hosts": len(net.hosts),
-            "events": net.event_count,
-            "first_seen": net.first_seen,
-            "last_seen": net.last_seen,
-        }
-        for net in network_map.networks
-    ]
+def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str], unifi_networks=()) -> tuple[list[dict], int]:
+    """Returns (rows, count hidden as noise). Two kinds of noise filtered
+    out, not just capped: a single-host "prefix" grouping is almost always
+    a random external IP that happened to get its own /24 guess, not a
+    real local network (interface-confirmed groupings are real evidence
+    regardless of host count, so those are never filtered); and once
+    UniFi confirms a network's real name for a range, the guessed entry
+    for that same range is redundant — resolve_label() already prefers
+    the real name everywhere a host/flow in that range gets labeled."""
+    rows = []
+    hidden = 0
+    for net in network_map.networks:  # already sorted by event volume, descending
+        if net.kind == "prefix" and len(net.hosts) <= 1:
+            hidden += 1
+            continue
+        if unifi_networks and net.hosts and unifi_network_for_ip(next(iter(net.hosts)), unifi_networks):
+            hidden += 1
+            continue
+        rows.append(
+            {
+                "key": net.key,
+                "kind": net.kind,
+                "guessed_range": net.guessed_range,
+                "display_name": friendly_names.get(net.key, net.guessed_range or net.key),
+                "hosts": len(net.hosts),
+                "events": net.event_count,
+                "first_seen": net.first_seen,
+                "last_seen": net.last_seen,
+            }
+        )
+    return rows, hidden
 
 
-def _build_host_rows(network_map, friendly_names, manual_labels, identities, events: list[_Event]) -> list[dict]:
+def _build_host_rows(network_map, friendly_names, manual_labels, identities, events: list[_Event], unifi_networks=()) -> tuple[list[dict], int]:
+    """Returns (rows, count hidden as external). A public IP like 1.1.1.1
+    shows up constantly as a flow endpoint (it's a hugely popular DNS
+    resolver) but isn't a "host" in any inventory sense — it's not a
+    device on this network. Filtered out before ranking (not after), so a
+    high-volume external destination can't crowd real local devices out of
+    the top N. The flow/network tables still show every IP; this one
+    specifically answers "what's on my network," not "what did it talk to."
+    """
     counts: Counter = Counter()
     last_seen: dict[str, float] = {}
     first_seen: dict[str, float] = {}
+    external_ips: set[str] = set()
     for e in events:  # events is newest-first
         for ip in (e.src_ip, e.dst_ip):
+            if not is_private_ip(ip):
+                external_ips.add(ip)
+                continue
             counts[ip] += 1
             last_seen.setdefault(ip, e.ts)
             first_seen[ip] = e.ts  # overwritten every time; final value is the oldest in-window
@@ -134,7 +170,7 @@ def _build_host_rows(network_map, friendly_names, manual_labels, identities, eve
         rows.append(
             {
                 "ip": ip,
-                "network": resolve_label(ip, network_map, friendly_names, manual_labels),
+                "network": resolve_label(ip, network_map, friendly_names, manual_labels, unifi_networks),
                 "device_class": info.get("device_class") or "Unclassified",
                 "confidence": info.get("confidence") or "low",
                 "events": count,
@@ -142,10 +178,10 @@ def _build_host_rows(network_map, friendly_names, manual_labels, identities, eve
                 "last_seen": last_seen.get(ip),
             }
         )
-    return rows
+    return rows, len(external_ips)
 
 
-def _build_flow_tables(network_map, friendly_names, manual_labels, identities, events: list[_Event]) -> tuple[list[dict], list[dict]]:
+def _build_flow_tables(network_map, friendly_names, manual_labels, identities, events: list[_Event], unifi_networks=()) -> tuple[list[dict], list[dict]]:
     counts: Counter = Counter()
     last_seen: dict[tuple, float] = {}
     for e in events:  # newest-first
@@ -154,7 +190,7 @@ def _build_flow_tables(network_map, friendly_names, manual_labels, identities, e
         last_seen.setdefault(key, e.ts)
 
     top_flows = [
-        _flow_row(*key, count, last_seen[key], network_map, friendly_names, manual_labels, identities)
+        _flow_row(*key, count, last_seen[key], network_map, friendly_names, manual_labels, identities, unifi_networks)
         for key, count in counts.most_common(_TOP_FLOWS_LIMIT)
     ]
 
@@ -166,7 +202,7 @@ def _build_flow_tables(network_map, friendly_names, manual_labels, identities, e
             continue
         seen.add(key)
         recent_examples.append(
-            _flow_row(*key, counts[key], e.ts, network_map, friendly_names, manual_labels, identities)
+            _flow_row(*key, counts[key], e.ts, network_map, friendly_names, manual_labels, identities, unifi_networks)
         )
         if len(recent_examples) >= _RECENT_EXAMPLES_LIMIT:
             break
@@ -184,13 +220,18 @@ def traffic_page():
     manual_labels = parse_network_labels(list(config.network_labels))
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)
+    unifi_networks = load_unifi_networks(conn)
     events = _load_events(conn, since)
     identities = _load_identities(conn)
 
     direction_counts = count_directions([(e.src_ip, e.dst_ip) for e in events])
-    network_rows = _build_network_rows(network_map, friendly_names)
-    host_rows = _build_host_rows(network_map, friendly_names, manual_labels, identities, events)
-    top_flows, recent_examples = _build_flow_tables(network_map, friendly_names, manual_labels, identities, events)
+    network_rows, hidden_network_count = _build_network_rows(network_map, friendly_names, unifi_networks)
+    host_rows, hidden_external_host_count = _build_host_rows(
+        network_map, friendly_names, manual_labels, identities, events, unifi_networks
+    )
+    top_flows, recent_examples = _build_flow_tables(
+        network_map, friendly_names, manual_labels, identities, events, unifi_networks
+    )
 
     return render_template(
         "traffic.html",
@@ -198,7 +239,10 @@ def traffic_page():
         sampled_events=len(events),
         direction_counts=direction_counts,
         network_rows=network_rows,
+        hidden_network_count=hidden_network_count,
+        unifi_networks_active=bool(unifi_networks),
         host_rows=host_rows,
+        hidden_external_host_count=hidden_external_host_count,
         top_flows=top_flows,
         recent_examples=recent_examples,
         window_days=_WINDOW_SECONDS // 86400,

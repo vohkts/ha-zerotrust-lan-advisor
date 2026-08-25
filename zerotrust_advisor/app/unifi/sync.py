@@ -16,6 +16,7 @@ import sqlite3
 import time
 
 from app.config import Config, read_secret
+from app.sanitize.classify import classify
 from app.unifi.capability_probe import ProbeReport, probe
 from app.unifi.client import UnifiClientAPI
 
@@ -32,6 +33,41 @@ def _scalar(value):
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return json.dumps(value)
+
+
+def _upsert_identity_from_unifi_client(conn: sqlite3.Connection, unifi_client, now: float) -> None:
+    """UniFi's own client name is a real device-classification signal
+    (classify.py's hostname patterns match "Johns-iPhone" just as well as
+    an mDNS-sourced one) that never reached the identities table before —
+    which is why Traffic's device class stayed "Unclassified" for hosts
+    even with the integration configured and working. Same upsert shape as
+    mdns_listener.py's _upsert_identity: last writer wins, no merge logic,
+    consistent with how every other identity source already behaves here.
+    """
+    if not unifi_client.ip:
+        return
+    classification = classify(hostname=unifi_client.name, mac=unifi_client.mac)
+    device_key = unifi_client.mac or unifi_client.ip
+    conn.execute(
+        """INSERT INTO identities (device_key, ip, mac, hostname, vendor, device_class, class_confidence,
+                                    first_seen, last_seen)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(device_key) DO UPDATE SET
+               ip=excluded.ip, mac=excluded.mac, hostname=excluded.hostname, vendor=excluded.vendor,
+               device_class=excluded.device_class, class_confidence=excluded.class_confidence,
+               last_seen=excluded.last_seen""",
+        (
+            device_key,
+            unifi_client.ip,
+            unifi_client.mac,
+            unifi_client.name,
+            classification.vendor,
+            classification.device_class,
+            classification.confidence,
+            now,
+            now,
+        ),
+    )
 
 
 def _build_client(config: Config) -> UnifiClientAPI | None:
@@ -111,10 +147,20 @@ def refresh(conn: sqlite3.Connection, config: Config) -> ProbeReport | None:
         conn.execute("DELETE FROM unifi_clients")
         for c in client.list_clients(report.site_id):
             conn.execute(
-                "INSERT INTO unifi_clients (id, name, mac, ip, network_id, raw_json, fetched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO unifi_clients (id, name, mac, ip, network_id, connected_at, raw_json, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (_scalar(c.id), _scalar(c.name), _scalar(c.mac), _scalar(c.ip), _scalar(c.network_id),
-                 json.dumps(c.raw), now),
+                 _scalar(c.connected_at), json.dumps(c.raw), now),
+            )
+            _upsert_identity_from_unifi_client(conn, c, now)
+
+    if "networks" in ok_keys:
+        conn.execute("DELETE FROM unifi_networks")
+        for n in client.list_networks(report.site_id):
+            conn.execute(
+                "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (_scalar(n.id), _scalar(n.name), n.vlan_id, _scalar(n.subnet), json.dumps(n.raw), now),
             )
 
     if "firewall_zones" in ok_keys:

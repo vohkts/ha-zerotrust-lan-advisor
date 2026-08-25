@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 
 
+def is_running() -> bool:
+    """Non-blocking check, used by the GUI to poll live progress (each
+    recommendation commits to the database immediately as it's found —
+    see engine.py — so watching the count climb while this is True is a
+    real progress signal, not a fake spinner)."""
+    return _lock.locked()
+
+
 def run_analysis_now(conn, config) -> AnalysisPassResult | None:
     """Returns None if a pass was already in progress."""
     if not _lock.acquire(blocking=False):

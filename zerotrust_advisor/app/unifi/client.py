@@ -76,6 +76,24 @@ class UnifiClient:
     mac: str | None
     ip: str | None
     network_id: str | None
+    connected_at: str | None  # ISO 8601 — when this client's current/most-recent session started
+    raw: dict = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class UnifiNetwork:
+    """A real, configured VLAN/network — distinct from a firewall zone
+    (which groups multiple networks together for policy purposes) and, in
+    the UI, the authoritative alternative to a traffic-guessed network:
+    when an IP falls inside a known network's subnet, that beats a /24
+    guess with nothing to confirm it. Field names (vlanId, ipv4Subnet)
+    confirmed against a community-maintained OpenAPI spec, not a live
+    console — verify against real data if this ever looks wrong."""
+
+    id: str
+    name: str
+    vlan_id: int | None
+    subnet: str | None  # CIDR, e.g. "192.168.10.0/24"
     raw: dict = field(default_factory=dict, repr=False)
 
 
@@ -220,10 +238,27 @@ class UnifiClientAPI:
                     mac=item.get("macAddress") or item.get("mac"),
                     ip=item.get("ipAddress") or item.get("ip"),
                     network_id=item.get("networkId") or item.get("uplinkDeviceId"),
+                    connected_at=item.get("connectedAt"),
                     raw=item,
                 )
             )
         return clients
+
+    def list_networks(self, site_id: str) -> list[UnifiNetwork]:
+        items = self._get_all(f"/sites/{site_id}/networks")
+        networks = []
+        for item in items:
+            vlan_id = item.get("vlanId")
+            networks.append(
+                UnifiNetwork(
+                    id=item.get("id", ""),
+                    name=item.get("name", ""),
+                    vlan_id=int(vlan_id) if isinstance(vlan_id, (int, float)) else None,
+                    subnet=item.get("ipv4Subnet") or item.get("subnet"),
+                    raw=item,
+                )
+            )
+        return networks
 
     def list_firewall_zones(self, site_id: str) -> list[FirewallZone]:
         items = self._get_all(f"/sites/{site_id}/firewall/zones")

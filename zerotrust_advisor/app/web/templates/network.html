@@ -29,6 +29,29 @@
 {% endif %}
 
 <section>
+  <h3>Networks ({{ networks | length }})</h3>
+  <p class="hint">Real, configured VLANs/networks — the authoritative source for network names shown
+     throughout this add-on (Traffic, Recommendations) once a host's IP falls inside one of these subnets,
+     replacing an unconfirmed traffic-based guess.</p>
+  {% if not networks %}
+    <p class="hint">None reported, or this key can't read them.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Name</th><th>VLAN</th><th>Subnet</th></tr></thead>
+    <tbody>
+      {% for n in networks %}
+      <tr>
+        <td>{{ n.name }}</td>
+        <td>{{ n.vlan_id if n.vlan_id is not none else "—" }}</td>
+        <td>{{ n.subnet or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
   <h3>Firewall zones ({{ zones | length }})</h3>
   {% if not zones %}
     <p class="hint">None reported, or this key can't read them.</p>
@@ -96,17 +119,21 @@
 
 <section>
   <h3>Connected clients ({{ clients | length }})</h3>
+  <p class="hint">Connected since is the client's current (or most recent) session start — the closest
+     thing to "last seen" this API exposes. Clients not seen in over 3 days are hidden here automatically
+     {% if stale_client_count %}({{ stale_client_count }} hidden right now){% endif %}.</p>
   {% if not clients %}
     <p class="hint">None reported, or this key can't read them.</p>
   {% else %}
   <table class="status-table">
-    <thead><tr><th>Name</th><th>IP</th><th>MAC</th></tr></thead>
+    <thead><tr><th>Name</th><th>IP</th><th>MAC</th><th>Connected since</th></tr></thead>
     <tbody>
       {% for c in clients %}
       <tr>
         <td>{{ c.name or "—" }}</td>
         <td>{{ c.ip or "—" }}</td>
         <td>{{ c.mac or "—" }}</td>
+        <td>{{ c.connected_at | fmt_time if c.connected_at else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>

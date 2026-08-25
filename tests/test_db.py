@@ -57,6 +57,41 @@ def test_connect_migrates_an_existing_database_missing_the_category_column(tmp_p
     assert "idx_recommendations_category" in indexes
 
 
+def test_connect_migrates_an_existing_unifi_clients_table_missing_connected_at(tmp_path):
+    # Simulates a real production database from before connected_at existed
+    # -- unifi_clients is fully DELETE+re-INSERT'd on every sync, but the
+    # migration still has to run cleanly against whatever the table looked
+    # like the last time this add-on started.
+    db_path = tmp_path / "zerotrust.db"
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute(
+        """CREATE TABLE unifi_clients (
+               id TEXT PRIMARY KEY,
+               name TEXT,
+               mac TEXT,
+               ip TEXT,
+               network_id TEXT,
+               raw_json TEXT NOT NULL,
+               fetched_at REAL NOT NULL
+           )"""
+    )
+    old_conn.execute(
+        "INSERT INTO unifi_clients (id, name, mac, ip, network_id, raw_json, fetched_at) "
+        "VALUES ('c1', 'iPhone', 'aa:bb', '10.0.0.9', 'net-1', '{}', 1700000000)"
+    )
+    old_conn.commit()
+    old_conn.close()
+
+    conn = db.connect(db_path)  # must not raise
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(unifi_clients)")}
+    assert "connected_at" in columns
+
+    row = conn.execute("SELECT name, connected_at FROM unifi_clients WHERE id = 'c1'").fetchone()
+    assert row[0] == "iPhone"  # the old row survived intact
+    assert row[1] is None  # backfilled NULL, not a guessed value
+
+
 def test_connect_is_idempotent_on_an_already_migrated_database(tmp_path):
     db_path = tmp_path / "zerotrust.db"
     db.connect(db_path)

@@ -1,3 +1,4 @@
+import ipaddress
 import sys
 import time
 from pathlib import Path
@@ -7,9 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"
 from app import db
 from app.analysis.netlabels import parse_network_labels
 from app.analysis.network_map import (
+    UnifiNetworkInfo,
     build_network_map,
     infer_ip_keys,
     load_friendly_names,
+    load_unifi_networks,
     resolve_label,
     set_friendly_name,
 )
@@ -112,6 +115,54 @@ def test_resolve_label_priority_manual_then_friendly_then_guessed_range_then_raw
 
     # An IP nothing was ever discovered for falls back to itself.
     assert resolve_label("203.0.113.1", network_map, friendly) == "203.0.113.1"
+
+
+def test_resolve_label_prefers_a_real_unifi_network_over_a_guessed_range(tmp_path):
+    conn = _seed_db(tmp_path)
+    network_map = build_network_map(conn, since=NOW - 60)
+    unifi_networks = [UnifiNetworkInfo(name="IoT VLAN", network=ipaddress.ip_network("192.168.10.0/24"))]
+
+    assert resolve_label("192.168.10.5", network_map, {}, unifi_networks=unifi_networks) == "IoT VLAN"
+
+
+def test_resolve_label_an_explicit_friendly_name_still_wins_over_unifi():
+    # A friendly name is a deliberate per-network customization, same as a
+    # manual override -- UniFi becomes the default source of truth, not a
+    # silent override of something the user already named on purpose.
+    from app.analysis.network_map import DiscoveredNetwork, NetworkMap
+
+    network_map = NetworkMap(
+        networks=[DiscoveredNetwork(key="br1", kind="interface", hosts=frozenset({"192.168.10.5"}),
+                                     event_count=1, first_seen=0, last_seen=0, guessed_range="192.168.10.0/24")],
+        ip_to_key={"192.168.10.5": "br1"},
+    )
+    unifi_networks = [UnifiNetworkInfo(name="IoT VLAN", network=ipaddress.ip_network("192.168.10.0/24"))]
+
+    assert resolve_label("192.168.10.5", network_map, {"br1": "Kids devices"}, unifi_networks=unifi_networks) == "Kids devices"
+
+
+def test_resolve_label_manual_override_still_wins_over_unifi(tmp_path):
+    conn = _seed_db(tmp_path)
+    network_map = build_network_map(conn, since=NOW - 60)
+    unifi_networks = [UnifiNetworkInfo(name="IoT VLAN", network=ipaddress.ip_network("192.168.10.0/24"))]
+    manual = parse_network_labels(["192.168.10.0/24=ManualOverride"])
+
+    assert resolve_label("192.168.10.5", network_map, {}, manual, unifi_networks) == "ManualOverride"
+
+
+def test_load_unifi_networks_skips_an_unparseable_subnet(tmp_path):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    conn.execute(
+        "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) "
+        "VALUES ('n1', 'Bad', NULL, 'not-a-subnet', '{}', ?)", (NOW,),
+    )
+    conn.execute(
+        "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) "
+        "VALUES ('n2', 'Good', 10, '192.168.10.0/24', '{}', ?)", (NOW,),
+    )
+    conn.commit()
+    networks = load_unifi_networks(conn)
+    assert [n.name for n in networks] == ["Good"]
 
 
 def test_set_friendly_name_empty_string_clears_it(tmp_path):

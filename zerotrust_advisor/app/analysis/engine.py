@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from app.analysis.grouping import GroupableEvent, group_candidate_patterns
 from app.analysis.netlabels import parse_network_labels
-from app.analysis.network_map import NetworkMap, build_network_map, load_friendly_names, resolve_label
+from app.analysis.network_map import NetworkMap, build_network_map, load_friendly_names, load_unifi_networks, resolve_label
 from app.analysis.noise import is_own_receiver_traffic
 from app.analysis.setup_recommendations import generate_setup_recommendations
 from app.config import Config, read_secret
@@ -51,6 +51,7 @@ def _load_events(
     syslog_port: int,
     netflow_port: int,
     ignore_own_receiver_traffic: bool,
+    unifi_networks: list | None = None,
 ) -> list[GroupableEvent]:
     events: list[GroupableEvent] = []
 
@@ -66,8 +67,8 @@ def _load_events(
             # add-on's receiver — expected and intentional, not a
             # segmentation decision worth a recommendation.
             continue
-        src_label = resolve_label(src_ip, network_map, friendly_names, manual_labels)
-        dst_label = resolve_label(dst_ip, network_map, friendly_names, manual_labels)
+        src_label = resolve_label(src_ip, network_map, friendly_names, manual_labels, unifi_networks)
+        dst_label = resolve_label(dst_ip, network_map, friendly_names, manual_labels, unifi_networks)
         events.append(
             GroupableEvent(
                 event_id=event_id,
@@ -154,12 +155,14 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     manual_labels = parse_network_labels(list(config.network_labels))
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)
+    unifi_networks = load_unifi_networks(conn)
     host_ip = get_host_ip()
     _purge_stale_receiver_recommendations(conn, config, host_ip)
     events = _load_events(
         conn, network_map, friendly_names, manual_labels, since=since, host_ip=host_ip,
         syslog_port=config.syslog_port, netflow_port=config.netflow_port,
         ignore_own_receiver_traffic=config.ignore_own_receiver_traffic,
+        unifi_networks=unifi_networks,
     )
     patterns = group_candidate_patterns(events, min_recurring_days=config.min_recurring_days)
 

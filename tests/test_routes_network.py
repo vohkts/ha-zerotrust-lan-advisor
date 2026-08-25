@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"
 from app import db
 from app.unifi import sync
 from app.unifi.capability_probe import CapabilityResult, ProbeReport
-from app.web.routes_network import _load_devices, _load_policies, _load_zones, unifi_available
+from app.web.routes_network import _load_clients, _load_devices, _load_policies, _load_zones, unifi_available
 
 NOW = time.time()
 
@@ -98,3 +98,48 @@ def test_load_devices(tmp_path):
     conn.commit()
     devices = _load_devices(conn)
     assert devices == [{"id": "d1", "name": "Switch", "model": "USW", "mac": "aa:bb", "ip": "10.0.0.5", "state": "ONLINE"}]
+
+
+def _insert_client(conn, id_, connected_at):
+    conn.execute(
+        "INSERT INTO unifi_clients (id, name, mac, ip, network_id, connected_at, raw_json, fetched_at) "
+        "VALUES (?, ?, 'aa:bb', '10.0.0.9', 'net-1', ?, '{}', ?)",
+        (id_, f"Client{id_}", connected_at, NOW),
+    )
+
+
+def test_load_clients_hides_ones_stale_beyond_three_days(tmp_path):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    from datetime import datetime, timezone
+
+    recent = datetime.fromtimestamp(NOW - 3600, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    stale = datetime.fromtimestamp(NOW - 10 * 86400, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    _insert_client(conn, "recent", recent)
+    _insert_client(conn, "stale", stale)
+    conn.commit()
+
+    visible, stale_count = _load_clients(conn, now=NOW)
+    assert {c["id"] for c in visible} == {"recent"}
+    assert stale_count == 1
+
+
+def test_load_clients_keeps_clients_with_no_connected_at_at_all(tmp_path):
+    # Missing data is not evidence of staleness -- reject/hide only on
+    # positive evidence the client hasn't been seen recently.
+    conn = db.connect(tmp_path / "zerotrust.db")
+    _insert_client(conn, "unknown", None)
+    conn.commit()
+
+    visible, stale_count = _load_clients(conn, now=NOW)
+    assert {c["id"] for c in visible} == {"unknown"}
+    assert stale_count == 0
+
+
+def test_load_clients_ignores_an_unparseable_connected_at(tmp_path):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    _insert_client(conn, "weird", "not-a-real-timestamp")
+    conn.commit()
+
+    visible, stale_count = _load_clients(conn, now=NOW)
+    assert {c["id"] for c in visible} == {"weird"}
+    assert stale_count == 0

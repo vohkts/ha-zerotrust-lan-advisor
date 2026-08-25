@@ -9,6 +9,9 @@ whether or not this is configured.
 """
 from __future__ import annotations
 
+import time
+from datetime import datetime
+
 from flask import Blueprint, current_app, jsonify, render_template
 
 from app.unifi import sync
@@ -16,12 +19,19 @@ from app.web.db_context import get_db
 
 network_bp = Blueprint("network", __name__)
 
+_STALE_CLIENT_SECONDS = 3 * 86400
+
 
 def unifi_available(config, conn) -> bool:
     if not config.unifi_enabled:
         return False
     report = sync.load_probe_report(conn)
     return bool(report and report["any_capability_ok"])
+
+
+def _load_networks(conn) -> list[dict]:
+    rows = conn.execute("SELECT id, name, vlan_id, subnet FROM unifi_networks ORDER BY name").fetchall()
+    return [{"id": r[0], "name": r[1], "vlan_id": r[2], "subnet": r[3]} for r in rows]
 
 
 def _load_zones(conn) -> list[dict]:
@@ -57,9 +67,39 @@ def _load_devices(conn) -> list[dict]:
     return [{"id": r[0], "name": r[1], "model": r[2], "mac": r[3], "ip": r[4], "state": r[5]} for r in rows]
 
 
-def _load_clients(conn) -> list[dict]:
-    rows = conn.execute("SELECT id, name, mac, ip, network_id FROM unifi_clients ORDER BY name").fetchall()
-    return [{"id": r[0], "name": r[1], "mac": r[2], "ip": r[3], "network_id": r[4]} for r in rows]
+def _parse_connected_at(value) -> float | None:
+    """The API's connectedAt is ISO 8601 (e.g. "2024-01-01T00:00:00Z");
+    stored as-is in the database, parsed here for sorting/staleness/display.
+    A value that doesn't parse is treated the same as one that's missing —
+    reject, don't guess."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _load_clients(conn, now: float | None = None) -> tuple[list[dict], int]:
+    """Returns (visible clients, count hidden as stale). A client whose
+    connectedAt (its current/most-recent session start — the closest thing
+    to a "last seen" this API exposes) is more than _STALE_CLIENT_SECONDS
+    old is hidden from the main list rather than shown alongside genuinely
+    active ones, but counted so that's not silent."""
+    now = now if now is not None else time.time()
+    rows = conn.execute(
+        "SELECT id, name, mac, ip, network_id, connected_at FROM unifi_clients ORDER BY name"
+    ).fetchall()
+
+    visible = []
+    stale_count = 0
+    for r in rows:
+        connected_at = _parse_connected_at(r[5])
+        if connected_at is not None and connected_at < now - _STALE_CLIENT_SECONDS:
+            stale_count += 1
+            continue
+        visible.append({"id": r[0], "name": r[1], "mac": r[2], "ip": r[3], "network_id": r[4], "connected_at": connected_at})
+    return visible, stale_count
 
 
 @network_bp.route("/network")
@@ -73,15 +113,18 @@ def network_page():
         return render_template("network.html", available=False, unifi_enabled=config.unifi_enabled, probe=probe)
 
     policies = _load_policies(conn)
+    clients, stale_client_count = _load_clients(conn)
     return render_template(
         "network.html",
         available=True,
         unifi_enabled=True,
         probe=probe,
+        networks=_load_networks(conn),
         zones=_load_zones(conn),
         policies=policies,
         devices=_load_devices(conn),
-        clients=_load_clients(conn),
+        clients=clients,
+        stale_client_count=stale_client_count,
         logging_off_count=sum(1 for p in policies if p["enabled"] and p["logging_enabled"] is False),
     )
 

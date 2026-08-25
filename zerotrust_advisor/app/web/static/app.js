@@ -15,12 +15,14 @@ for (const link of document.querySelectorAll("nav [data-nav]")) {
 // Using fetch() rather than a normal form submit keeps the browser's
 // address bar on the current page — which matters under Ingress, where
 // every link in this app is relative to whatever page is currently shown.
+// "Run analysis now" is deliberately not one of these — see its own
+// handler below, which needs to poll for progress instead of just
+// reloading once a single request resolves.
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
 
   button.disabled = true;
-  const statusEl = document.getElementById("run-now-status");
   // Buttons with data-form-body="closest" (e.g. the network rename form)
   // send their enclosing form's fields as the POST body; everything else
   // posts with no body, same as before.
@@ -33,19 +35,69 @@ document.addEventListener("click", async (event) => {
     if (!response.ok && response.status !== 409) {
       throw new Error(`request failed: ${response.status}`);
     }
-    if (button.id === "run-now" && statusEl) {
+    window.location.reload();
+  } catch (err) {
+    button.disabled = false;
+  }
+});
+
+// "Run analysis now" — this can genuinely take anywhere from a few
+// seconds (nothing new) to several minutes (each new pattern needs its
+// own LLM call, roughly a minute on typical hardware), and a plain
+// disabled button with no feedback for that long reads as frozen, not
+// busy. Every recommendation commits to the database the instant it's
+// found (see engine.py), so polling the live count while this runs is
+// real progress, not a fake spinner.
+const runNowBtn = document.getElementById("run-now");
+if (runNowBtn) {
+  runNowBtn.addEventListener("click", async () => {
+    const statusEl = document.getElementById("run-now-status");
+    runNowBtn.disabled = true;
+
+    let baseline = { zero_trust_count: 0, setup_count: 0 };
+    try {
+      baseline = await (await fetch("recommendations/progress")).json();
+    } catch {
+      // Fine to proceed without a baseline — progress text just won't
+      // have a "new since you clicked" count to show.
+    }
+
+    statusEl.textContent =
+      "Running… this can take from a few seconds to several minutes, roughly a minute per new pattern found.";
+
+    const pollTimer = setInterval(async () => {
+      try {
+        const body = await (await fetch("recommendations/progress")).json();
+        const newZt = body.zero_trust_count - baseline.zero_trust_count;
+        const newSetup = body.setup_count - baseline.setup_count;
+        if (newZt > 0 || newSetup > 0) {
+          statusEl.textContent = `Running… ${newZt} new recommendation(s), ${newSetup} new setup finding(s) so far.`;
+        }
+      } catch {
+        // A missed poll just means one stale status update — the next
+        // tick (or the final response below) will catch up.
+      }
+    }, 4000);
+
+    try {
+      const response = await fetch("recommendations/run-now", { method: "POST" });
+      if (!response.ok && response.status !== 409) {
+        throw new Error(`request failed: ${response.status}`);
+      }
       const body = await response.json();
       statusEl.textContent =
         body.status === "already_running"
           ? "An analysis pass is already running."
           : `Done — ${body.new_recommendations} new recommendation(s), ${body.new_setup_findings} new setup finding(s).`;
+      window.location.reload();
+    } catch (err) {
+      runNowBtn.disabled = false;
+      statusEl.textContent = `Something went wrong: ${err.message}`;
+    } finally {
+      clearInterval(pollTimer);
     }
-    window.location.reload();
-  } catch (err) {
-    button.disabled = false;
-    if (statusEl) statusEl.textContent = "Something went wrong — check the add-on logs.";
-  }
-});
+  });
+}
 
 // UniFi "Test connection" — posts the fieldset's current values (not
 // necessarily saved yet) and renders per-capability results inline.

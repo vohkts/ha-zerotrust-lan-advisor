@@ -37,6 +37,9 @@ class _FakeClient:
     def list_clients(self, site_id):
         return self._resolve("clients", site_id)
 
+    def list_networks(self, site_id):
+        return self._resolve("networks", site_id)
+
     def list_firewall_zones(self, site_id):
         return self._resolve("firewall_zones", site_id)
 

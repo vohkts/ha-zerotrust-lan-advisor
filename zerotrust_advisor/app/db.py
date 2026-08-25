@@ -125,12 +125,32 @@ CREATE TABLE IF NOT EXISTS unifi_devices (
     fetched_at REAL NOT NULL
 );
 
+-- connected_at: the client's own connectedAt from the API (ISO 8601
+-- string, stored as-is) -- when its current/most-recent session started.
+-- For an offline client this doubles as a "last seen" proxy; for an
+-- online one it's how long the current session has run. NULL on a
+-- database that predates this column until the next sync backfills it.
 CREATE TABLE IF NOT EXISTS unifi_clients (
     id TEXT PRIMARY KEY,
     name TEXT,
     mac TEXT,
     ip TEXT,
     network_id TEXT,
+    connected_at TEXT,
+    raw_json TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+
+-- A real, configured VLAN/network from UniFi -- distinct from a firewall
+-- zone, which groups several networks together for policy purposes. This
+-- is the authoritative alternative to a traffic-guessed network: an IP
+-- inside a known network's subnet gets that network's real name instead
+-- of an unconfirmed /24 guess (see network_map.py's UniFi cross-reference).
+CREATE TABLE IF NOT EXISTS unifi_networks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    vlan_id INTEGER,
+    subnet TEXT,
     raw_json TEXT NOT NULL,
     fetched_at REAL NOT NULL
 );
@@ -175,6 +195,7 @@ CREATE TABLE IF NOT EXISTS coverage_status (
 # that predates the column.
 _COLUMN_MIGRATIONS = [
     ("recommendations", "category", "TEXT NOT NULL DEFAULT 'zero_trust'"),
+    ("unifi_clients", "connected_at", "TEXT"),
 ]
 
 

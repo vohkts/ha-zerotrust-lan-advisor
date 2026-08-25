@@ -71,6 +71,7 @@ def probe(client: UnifiClientAPI) -> ProbeReport:
         for key, label in (
             ("devices", "Read devices"),
             ("clients", "Read connected clients"),
+            ("networks", "Read networks/VLANs"),
             ("firewall_zones", "Read firewall zones"),
             ("firewall_policies", "Read firewall policies"),
         ):
@@ -80,6 +81,7 @@ def probe(client: UnifiClientAPI) -> ProbeReport:
     for key, label, call in (
         ("devices", "Read devices", lambda: client.list_devices(site_id)),
         ("clients", "Read connected clients", lambda: client.list_clients(site_id)),
+        ("networks", "Read networks/VLANs", lambda: client.list_networks(site_id)),
         ("firewall_zones", "Read firewall zones", lambda: client.list_firewall_zones(site_id)),
         ("firewall_policies", "Read firewall policies", lambda: client.list_firewall_policies(site_id)),
     ):

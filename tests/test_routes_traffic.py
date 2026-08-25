@@ -3,8 +3,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"))
 
+import ipaddress
+
 from app.analysis.netlabels import parse_network_labels
-from app.analysis.network_map import DiscoveredNetwork, NetworkMap
+from app.analysis.network_map import DiscoveredNetwork, NetworkMap, UnifiNetworkInfo
 from app.db import connect
 from app.web.routes_traffic import _Event, _build_flow_tables, _build_host_rows, _build_network_rows, _count_events
 
@@ -35,8 +37,9 @@ def _events():
 
 
 def test_network_rows_reflect_discovered_networks_with_friendly_names():
-    rows = _build_network_rows(NETWORK_MAP, FRIENDLY_NAMES)
+    rows, hidden = _build_network_rows(NETWORK_MAP, FRIENDLY_NAMES)
     by_key = {r["key"]: r for r in rows}
+    assert hidden == 0
 
     assert by_key["br1"]["display_name"] == "IoT"
     assert by_key["br1"]["hosts"] == 2  # .10.5 and .10.6
@@ -47,15 +50,41 @@ def test_network_rows_reflect_discovered_networks_with_friendly_names():
 
 def test_network_rows_fall_back_to_guessed_range_without_a_friendly_name():
     # Not the raw interface name — "br1" means nothing to a user.
-    rows = _build_network_rows(NETWORK_MAP, {})
+    rows, _hidden = _build_network_rows(NETWORK_MAP, {})
     assert {r["key"]: r["display_name"] for r in rows} == {
         "br1": "192.168.10.0/24",
         "br2": "192.168.20.0/24",
     }
 
 
+def test_network_rows_hides_single_host_prefix_guesses_as_noise():
+    # A random external IP that got its own /24 guess is not a real
+    # network — interface-confirmed groupings are never filtered this way,
+    # regardless of host count.
+    noisy_map = NetworkMap(
+        networks=[
+            *NETWORK_MAP.networks,
+            DiscoveredNetwork(
+                key="8.8.8.0/24", kind="prefix", hosts=frozenset({"8.8.8.8"}),
+                event_count=1, first_seen=100, last_seen=100, guessed_range="8.8.8.0/24",
+            ),
+        ],
+        ip_to_key={**NETWORK_MAP.ip_to_key, "8.8.8.8": "8.8.8.0/24"},
+    )
+    rows, hidden = _build_network_rows(noisy_map, {})
+    assert {r["key"] for r in rows} == {"br1", "br2"}
+    assert hidden == 1
+
+
+def test_network_rows_hides_a_guess_once_unifi_confirms_that_range():
+    unifi_networks = [UnifiNetworkInfo(name="IoT VLAN", network=ipaddress.ip_network("192.168.10.0/24"))]
+    rows, hidden = _build_network_rows(NETWORK_MAP, {}, unifi_networks)
+    assert {r["key"] for r in rows} == {"br2"}  # br1 (192.168.10.0/24) is now redundant
+    assert hidden == 1
+
+
 def test_host_rows_ranked_by_event_count_with_first_last_seen():
-    rows = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, _events())
+    rows, _hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, _events())
     by_ip = {r["ip"]: r for r in rows}
 
     assert by_ip["192.168.10.5"]["events"] == 2
@@ -67,7 +96,7 @@ def test_host_rows_ranked_by_event_count_with_first_last_seen():
 
 def test_host_rows_use_identity_when_available():
     identities = {"192.168.10.5": {"device_class": "Apple HomePod / smart speaker", "confidence": "high"}}
-    rows = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, identities, _events())
+    rows, _hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, identities, _events())
     row = next(r for r in rows if r["ip"] == "192.168.10.5")
     assert row["device_class"] == "Apple HomePod / smart speaker"
     assert row["confidence"] == "high"
@@ -75,9 +104,18 @@ def test_host_rows_use_identity_when_available():
 
 def test_manual_label_override_wins_over_discovered_network():
     manual = parse_network_labels(["192.168.10.0/24=ManualOverride"])
-    rows = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, manual, {}, _events())
+    rows, _hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, manual, {}, _events())
     row = next(r for r in rows if r["ip"] == "192.168.10.5")
     assert row["network"] == "ManualOverride"
+
+
+def test_host_rows_excludes_public_ips_and_counts_them_hidden():
+    # A public IP like 8.8.8.8 is a flow endpoint, not a "host" on this
+    # network — it must not appear in the inventory, and must not crowd a
+    # real local device out of the top-N ranking either.
+    rows, hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, _events())
+    assert "8.8.8.8" not in {r["ip"] for r in rows}
+    assert hidden == 1
 
 
 def test_top_flows_aggregates_by_full_key_and_counts_occurrences():

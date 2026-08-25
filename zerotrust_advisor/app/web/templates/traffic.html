@@ -44,15 +44,21 @@
 </section>
 
 <section>
-  <h3>Networks (auto-discovered)</h3>
+  <h3>Networks (auto-discovered guesses)</h3>
   <p class="hint">Discovered from traffic itself — no manual subnet/VLAN entry required. The range shown is
-     always a guess in this stage (there's no router API yet to confirm the real subnet mask) — a good one,
-     since real networks are almost always /24s, but a guess, marked as such until you name it yourself.
+     a guess (there's no way to confirm the real subnet mask from traffic alone) — a good one, since real
+     networks are almost always /24s, but a guess, marked as such until you name it yourself.
      Which hosts belong together is a separate, more reliable signal: grouped from a real firewall interface
      (<span class="chip chip-ok">confirmed</span>) beats grouped only by IP proximity
-     (<span class="chip chip-warn">address-based</span>), which is the fallback for flow-only devices.</p>
+     (<span class="chip chip-warn">address-based</span>), which is the fallback for flow-only devices.
+     Single-host address-based guesses (almost always a random external IP, not a real local network) are
+     hidden automatically.
+     {% if unifi_networks_active %}Once the UniFi integration confirms a range's real network, it's shown
+     under its real name everywhere below instead of appearing here as a guess — see the
+     <a href="network">Network</a> screen for the confirmed list.{% endif %}
+     {% if hidden_network_count %}({{ hidden_network_count }} hidden right now){% endif %}</p>
   {% if not network_rows %}
-    <p class="hint">No networks discovered yet.</p>
+    <p class="hint">No unconfirmed guesses right now{% if hidden_network_count %} — every discovered network is either UniFi-confirmed or not worth a guess{% endif %}.</p>
   {% else %}
   <table class="status-table">
     <thead><tr><th>Network</th><th>Grouping</th><th>Hosts</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
@@ -89,6 +95,15 @@
 
 <section>
   <h3>Hosts (top {{ host_rows | length }})</h3>
+  <p class="hint">Devices on your own networks only — public IPs your network merely talked to (like a DNS
+     resolver) aren't "hosts" here and are excluded
+     {% if hidden_external_host_count %}({{ hidden_external_host_count }} excluded right now){% endif %}.
+     <strong>Class</strong> is this add-on's best guess at device type, from the device's hostname (via mDNS
+     or, once configured, its name in UniFi) and its network hardware vendor (from its MAC address) — in that
+     order of trust. The number in parenthesis is confidence: <strong>high</strong> (hostname matched a known
+     pattern, e.g. "iPhone"), <strong>medium</strong> (vendor-only, e.g. "Apple device (model unknown)"), or
+     <strong>low</strong> ("Unclassified" — neither signal was available or recognized). A device staying
+     Unclassified usually means neither its hostname nor its MAC vendor gave this add-on anything to go on.</p>
   {% if not host_rows %}
     <p class="hint">No events yet.</p>
   {% else %}

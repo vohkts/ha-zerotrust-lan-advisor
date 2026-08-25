@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"
 from app import db
 from app.config import Config
 from app.unifi import sync
-from app.unifi.client import FirewallPolicy, FirewallZone, UnifiClient, UnifiDevice
+from app.unifi.client import FirewallPolicy, FirewallZone, UnifiClient, UnifiDevice, UnifiNetwork
 
 
 class _Site:
@@ -21,7 +21,10 @@ class _FakeClient:
 
     def __init__(self):
         self.devices = [UnifiDevice(id="d1", name="Switch", model="USW", mac="aa", ip="10.0.0.5", state="ONLINE")]
-        self.clients = [UnifiClient(id="c1", name="iPhone", mac="bb", ip="10.0.0.9", network_id="net-1")]
+        self.clients = [
+            UnifiClient(id="c1", name="iPhone", mac="bb", ip="10.0.0.9", network_id="net-1", connected_at="2026-08-20T10:00:00Z")
+        ]
+        self.networks = [UnifiNetwork(id="n1", name="IoT", vlan_id=10, subnet="192.168.10.0/24")]
         self.zones = [FirewallZone(id="z1", name="Internal")]
         self.policies = [
             FirewallPolicy(
@@ -41,6 +44,9 @@ class _FakeClient:
 
     def list_clients(self, site_id):
         return self.clients
+
+    def list_networks(self, site_id):
+        return self.networks
 
     def list_firewall_zones(self, site_id):
         return self.zones
@@ -86,10 +92,37 @@ def test_refresh_populates_all_caches_on_full_success(tmp_path, monkeypatch):
     assert report.site_id == "site-1"
     assert conn.execute("SELECT COUNT(*) FROM unifi_devices").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM unifi_clients").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM unifi_networks").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM unifi_zones").fetchone()[0] == 1
 
     row = conn.execute("SELECT logging_enabled FROM unifi_policies WHERE id = 'p1'").fetchone()
     assert row[0] == 0  # False stored as 0, not NULL — the field was known
+
+    row = conn.execute("SELECT name, vlan_id, subnet FROM unifi_networks WHERE id = 'n1'").fetchone()
+    assert row == ("IoT", 10, "192.168.10.0/24")
+
+
+def test_refresh_feeds_unifi_client_names_into_identities_for_classification(tmp_path, monkeypatch):
+    # Real gap: UniFi client data never reached the identities table, so
+    # Traffic's device class stayed "Unclassified" even with a working
+    # integration -- classify.py never saw the client's own name.
+    monkeypatch.setattr(sync, "read_secret", lambda name: "fake-key")
+    fake_client = _FakeClient()
+    fake_client.clients[0] = UnifiClient(
+        id="c1", name="Johns-iPhone", mac="aa:bb:cc:dd:ee:ff", ip="10.0.0.9",
+        network_id="net-1", connected_at="2026-08-20T10:00:00Z",
+    )
+    monkeypatch.setattr(sync, "_build_client", lambda config: fake_client)
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    sync.refresh(conn, _config())
+
+    row = conn.execute(
+        "SELECT hostname, device_class, class_confidence FROM identities WHERE ip = '10.0.0.9'"
+    ).fetchone()
+    assert row[0] == "Johns-iPhone"
+    assert row[1] == "iPhone"
+    assert row[2] == "high"
 
 
 def test_refresh_survives_an_unexpectedly_object_shaped_field(tmp_path, monkeypatch):

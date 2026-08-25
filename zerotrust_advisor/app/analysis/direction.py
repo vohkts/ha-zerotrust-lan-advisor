@@ -19,7 +19,7 @@ INTERNAL_EXTERNAL = "internal_external"
 EXTERNAL_EXTERNAL = "external_external"
 
 
-def _is_private(ip: str) -> bool:
+def is_private_ip(ip: str) -> bool:
     try:
         return ipaddress.ip_address(ip).is_private
     except ValueError:
@@ -27,8 +27,8 @@ def _is_private(ip: str) -> bool:
 
 
 def classify_direction(src_ip: str, dst_ip: str) -> str:
-    src_private = _is_private(src_ip)
-    dst_private = _is_private(dst_ip)
+    src_private = is_private_ip(src_ip)
+    dst_private = is_private_ip(dst_ip)
     if src_private and dst_private:
         return INTERNAL_INTERNAL
     if not src_private and not dst_private:

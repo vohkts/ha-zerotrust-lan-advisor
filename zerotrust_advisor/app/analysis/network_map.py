@@ -180,29 +180,72 @@ def set_friendly_name(conn: sqlite3.Connection, discovery_key: str, friendly_nam
     conn.commit()
 
 
+@dataclass(frozen=True)
+class UnifiNetworkInfo:
+    name: str
+    network: "ipaddress.IPv4Network | ipaddress.IPv6Network"
+
+
+def load_unifi_networks(conn: sqlite3.Connection) -> list[UnifiNetworkInfo]:
+    """Real, UniFi-confirmed networks (see app/unifi/) — the authoritative
+    alternative to a traffic-guessed range once the console integration is
+    configured and working. Empty (not an error) if UniFi isn't set up;
+    every caller already treats "no UniFi data" as the normal case. A
+    subnet that doesn't parse is skipped, not guessed at."""
+    rows = conn.execute("SELECT name, subnet FROM unifi_networks WHERE subnet IS NOT NULL").fetchall()
+    networks = []
+    for name, subnet in rows:
+        try:
+            networks.append(UnifiNetworkInfo(name=name, network=ipaddress.ip_network(subnet, strict=False)))
+        except ValueError:
+            continue
+    return networks
+
+
+def unifi_network_for_ip(ip: str, unifi_networks: list[UnifiNetworkInfo]) -> str | None:
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    for net in unifi_networks:
+        if address in net.network:
+            return net.name
+    return None
+
+
 def resolve_label(
     ip: str,
     network_map: NetworkMap,
     friendly_names: dict[str, str],
     manual_labels: list[NetworkLabel] | None = None,
+    unifi_networks: list[UnifiNetworkInfo] | None = None,
 ) -> str:
     """The one place display-name resolution happens, in priority order:
     an explicit manual CIDR=Label override (Settings, optional) > a
-    friendly name given to an auto-discovered network > that network's
-    guessed IP range (a bridge name like "br21" means nothing to a user,
-    or to a recommendation's prose) > the discovered key itself, only if
-    no IPv4 range could be guessed at all > the raw IP, when nothing was
-    ever discovered for it (e.g. a WAN address never seen locally)."""
+    friendly name given to an auto-discovered network (a deliberate
+    per-network customization, same spirit as a manual override) > a real
+    UniFi-confirmed network name, once the console integration is
+    configured (see load_unifi_networks) > that network's guessed IP range
+    (a bridge name like "br21" means nothing to a user, or to a
+    recommendation's prose) > the discovered key itself, only if no IPv4
+    range could be guessed at all > the raw IP, when nothing was ever
+    discovered for it (e.g. a WAN address never seen locally)."""
     if manual_labels:
         manual = label_for_ip(ip, manual_labels)
         if manual != ip:
             return manual
 
     key = network_map.ip_to_key.get(ip)
+    if key is not None and key in friendly_names:
+        return friendly_names[key]
+
+    if unifi_networks:
+        unifi_name = unifi_network_for_ip(ip, unifi_networks)
+        if unifi_name:
+            return unifi_name
+
     if key is None:
         return ip
-    if key in friendly_names:
-        return friendly_names[key]
 
     network = network_map.by_key.get(key)
     if network and network.guessed_range:
