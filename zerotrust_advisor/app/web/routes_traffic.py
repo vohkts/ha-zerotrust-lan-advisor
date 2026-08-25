@@ -38,6 +38,7 @@ from app.analysis.network_map import (
 from app.db import connect
 from app.llm.client import LLMError, chat_completion
 from app.llm.prompts import DEVICE_GUESS_SCHEMA, build_device_guess_messages
+from app.supervisor import get_host_ip
 from app.web.db_context import get_db
 
 logger = logging.getLogger(__name__)
@@ -340,7 +341,12 @@ def host_detail():
     identities = _load_identities(conn)
     info = identities.get(ip) or {}
 
-    detail = load_host_detail(conn, ip, since)
+    console_host = config.unifi_host if config.ignore_unifi_console_traffic else None
+    detail = load_host_detail(
+        conn, ip, since,
+        host_ip=get_host_ip(), syslog_port=config.syslog_port, netflow_port=config.netflow_port,
+        unifi_console_host=console_host,
+    )
 
     def _label(other_ip: str) -> str:
         return resolve_label(other_ip, network_map, friendly_names, manual_labels, unifi_networks)
@@ -373,6 +379,7 @@ def host_detail():
             "confidence": info.get("confidence") or "low",
             "network": _label(ip),
             "event_count": detail.event_count,
+            "event_count_capped": detail.event_count_capped,
             "first_seen": detail.first_seen,
             "last_seen": detail.last_seen,
             "top_ports": detail.top_ports,
@@ -415,7 +422,12 @@ def host_detail_guess():
                 "SELECT vendor FROM identities WHERE ip = ? ORDER BY last_seen DESC LIMIT 1", (ip,)
             ).fetchone()
             vendor = info[0] if info else None
-            detail = load_host_detail(conn, ip, since)
+            console_host = config.unifi_host if config.ignore_unifi_console_traffic else None
+            detail = load_host_detail(
+                conn, ip, since,
+                host_ip=get_host_ip(), syslog_port=config.syslog_port, netflow_port=config.netflow_port,
+                unifi_console_host=console_host,
+            )
             top_ports = [(p["proto"], p["port"], p["port_hint"]) for p in detail.top_ports]
 
             network_map = build_network_map(conn, since=since)

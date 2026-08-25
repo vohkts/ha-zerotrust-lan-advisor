@@ -423,8 +423,9 @@ async function loadAndRenderHostDetail(ip, container) {
 
   const summary = document.createElement("p");
   summary.className = "hint";
+  const countText = data.event_count_capped ? `${data.event_count}+` : `${data.event_count}`;
   summary.textContent =
-    `${data.event_count} event(s) in the last ${data.window_days} days` +
+    `${countText} event(s) in the last ${data.window_days} days` +
     (data.first_seen ? ` — first seen ${new Date(data.first_seen * 1000).toLocaleString()}` : "");
   root.appendChild(summary);
 

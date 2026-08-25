@@ -3,6 +3,16 @@ expandable Hosts row: total events, top ports, top flow partners, and
 recent distinct flows. Pure aggregation over already-parsed events — no
 LLM involved here (see app/llm/prompts.py's device-guess prompt, built
 from this module's output, for that separate on-demand piece).
+
+Unlike the main Traffic page (which deliberately shows everything, own-
+receiver traffic included — that filtering is LLM-recommendation-only, see
+engine.py), this view excludes it: found live on the add-on's own host,
+where syslog-forwarding to this add-on's receiver port dominated the
+summary at 3.75 million events, drowning out anything actually informative
+about what kind of device it is. That exclusion only matters for firewall
+events (a receiver port is a logging concept, not something NetFlow
+exports would report a match against). The UniFi-console-traffic exclusion
+does match the Traffic page's own behavior, applied to both sources there.
 """
 from __future__ import annotations
 
@@ -11,15 +21,18 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from app.analysis.known_ports import PROTO_NAMES, describe_port
+from app.analysis.noise import is_own_receiver_traffic
 
 _TOP_N = 8
 _RECENT_FLOWS_LIMIT = 20
+_MAX_ROWS = 20000  # a busy host (e.g. this add-on's own) can have millions of matching rows
 
 
 @dataclass(frozen=True)
 class HostDetail:
     ip: str
     event_count: int
+    event_count_capped: bool
     first_seen: float | None
     last_seen: float | None
     top_ports: list[dict] = field(default_factory=list)  # [{proto, port, port_hint, count}]
@@ -27,21 +40,40 @@ class HostDetail:
     recent_flows: list[dict] = field(default_factory=list)  # [{src, dst, proto, port, port_hint, count}]
 
 
-def load_host_detail(conn: sqlite3.Connection, ip: str, since: float) -> HostDetail:
+def load_host_detail(
+    conn: sqlite3.Connection,
+    ip: str,
+    since: float,
+    *,
+    host_ip: str | None = None,
+    syslog_port: int = 514,
+    netflow_port: int = 2055,
+    unifi_console_host: str | None = None,
+) -> HostDetail:
     fw_rows = conn.execute(
         "SELECT ts, src_ip, dst_ip, proto, dst_port FROM events_firewall "
-        "WHERE ts >= ? AND (src_ip = ? OR dst_ip = ?) ORDER BY ts DESC",
-        (since, ip, ip),
+        "WHERE ts >= ? AND (src_ip = ? OR dst_ip = ?) ORDER BY ts DESC LIMIT ?",
+        (since, ip, ip, _MAX_ROWS),
     ).fetchall()
+    fw_rows = [
+        r for r in fw_rows
+        if not is_own_receiver_traffic(r[2], r[4], host_ip, syslog_port, netflow_port)
+        and not (unifi_console_host and (r[1] == unifi_console_host or r[2] == unifi_console_host))
+    ]
+
     flow_rows = conn.execute(
         "SELECT ts_start, src_ip, dst_ip, proto, dst_port FROM events_flow "
-        "WHERE ts_start >= ? AND (src_ip = ? OR dst_ip = ?) ORDER BY ts_start DESC",
-        (since, ip, ip),
+        "WHERE ts_start >= ? AND (src_ip = ? OR dst_ip = ?) ORDER BY ts_start DESC LIMIT ?",
+        (since, ip, ip, _MAX_ROWS),
     ).fetchall()
+    if unifi_console_host:
+        flow_rows = [r for r in flow_rows if r[1] != unifi_console_host and r[2] != unifi_console_host]
+
     events = sorted([*fw_rows, *flow_rows], key=lambda e: e[0], reverse=True)
+    event_count_capped = len(fw_rows) >= _MAX_ROWS or len(flow_rows) >= _MAX_ROWS
 
     if not events:
-        return HostDetail(ip=ip, event_count=0, first_seen=None, last_seen=None)
+        return HostDetail(ip=ip, event_count=0, event_count_capped=False, first_seen=None, last_seen=None)
 
     port_counts: Counter = Counter()
     partner_counts: Counter = Counter()
@@ -82,6 +114,7 @@ def load_host_detail(conn: sqlite3.Connection, ip: str, since: float) -> HostDet
     return HostDetail(
         ip=ip,
         event_count=len(events),
+        event_count_capped=event_count_capped,
         first_seen=first_seen,
         last_seen=last_seen,
         top_ports=top_ports,
