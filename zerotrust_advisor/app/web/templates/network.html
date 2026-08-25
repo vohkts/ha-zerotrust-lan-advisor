@@ -37,13 +37,14 @@
     <p class="hint">None reported, or this key can't read them.</p>
   {% else %}
   <table class="status-table">
-    <thead><tr><th>Name</th><th>VLAN</th><th>Subnet</th></tr></thead>
+    <thead><tr><th>Name</th><th>VLAN</th><th>Subnet</th><th>Clients</th></tr></thead>
     <tbody>
       {% for n in networks %}
       <tr>
         <td>{{ n.name }}</td>
         <td>{{ n.vlan_id if n.vlan_id is not none else "—" }}</td>
         <td>{{ n.subnet or "—" }}</td>
+        <td>{{ n.client_count }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -72,7 +73,9 @@
   {% if not policies %}
     <p class="hint">None reported, or this key can't read them.</p>
   {% else %}
-  <table class="status-table">
+  <input type="search" class="table-filter" data-filter-for="policies-table"
+         placeholder="Filter by name, zone, action, protocol…">
+  <table class="status-table" id="policies-table">
     <thead><tr><th>Policy</th><th>State</th><th>Action</th><th>Zones</th><th>Protocol</th><th>Logging</th></tr></thead>
     <tbody>
       {% for p in policies %}
@@ -125,14 +128,17 @@
   {% if not clients %}
     <p class="hint">None reported, or this key can't read them.</p>
   {% else %}
-  <table class="status-table">
-    <thead><tr><th>Name</th><th>IP</th><th>MAC</th><th>Type</th><th>Connected since</th></tr></thead>
+  <input type="search" class="table-filter" data-filter-for="clients-table"
+         placeholder="Filter by name, IP, MAC, vendor…">
+  <table class="status-table" id="clients-table">
+    <thead><tr><th>Name</th><th>IP</th><th>MAC</th><th>Vendor</th><th>Type</th><th>Connected since</th></tr></thead>
     <tbody>
       {% for c in clients %}
       <tr>
         <td>{{ c.name or "—" }}</td>
         <td>{{ c.ip or "—" }}</td>
         <td>{{ c.mac or "—" }}</td>
+        <td>{{ c.vendor or "—" }}</td>
         <td>{{ c.client_type or "—" }}</td>
         <td>{{ c.connected_at | fmt_time if c.connected_at else "—" }}</td>
       </tr>

@@ -13,6 +13,7 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, render_template
 
+from app.sanitize.oui import lookup_vendor
 from app.unifi import sync
 from app.web.db_context import get_db
 
@@ -27,8 +28,12 @@ def unifi_available(config, conn) -> bool:
 
 
 def _load_networks(conn) -> list[dict]:
-    rows = conn.execute("SELECT id, name, vlan_id, subnet FROM unifi_networks ORDER BY name").fetchall()
-    return [{"id": r[0], "name": r[1], "vlan_id": r[2], "subnet": r[3]} for r in rows]
+    rows = conn.execute(
+        """SELECT n.id, n.name, n.vlan_id, n.subnet,
+                  (SELECT COUNT(*) FROM unifi_clients c WHERE c.network_id = n.id) AS client_count
+           FROM unifi_networks n ORDER BY n.name"""
+    ).fetchall()
+    return [{"id": r[0], "name": r[1], "vlan_id": r[2], "subnet": r[3], "client_count": r[4]} for r in rows]
 
 
 def _load_zones(conn) -> list[dict]:
@@ -94,6 +99,10 @@ def _load_clients(conn) -> list[dict]:
         {
             "id": r[0], "name": r[1], "mac": r[2], "ip": r[3], "network_id": r[4],
             "connected_at": _parse_connected_at(r[5]), "client_type": r[6],
+            # Same OUI lookup this add-on already uses for its own device
+            # classification — UniFi's own console shows vendor the same
+            # way (inferred from the MAC), it isn't a field the API sends.
+            "vendor": lookup_vendor(r[2]) if r[2] else None,
         }
         for r in rows
     ]

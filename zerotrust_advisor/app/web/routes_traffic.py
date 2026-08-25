@@ -94,13 +94,17 @@ def _load_identities(conn) -> dict[str, dict]:
 
 
 def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_names, manual_labels, identities, unifi_networks=()) -> dict:
+    src_info = identities.get(src) or {}
+    dst_info = identities.get(dst) or {}
     return {
         "src": src,
         "src_network": resolve_label(src, network_map, friendly_names, manual_labels, unifi_networks),
-        "src_class": (identities.get(src) or {}).get("device_class"),
+        "src_name": src_info.get("hostname"),
+        "src_class": src_info.get("device_class"),
         "dst": dst,
         "dst_network": resolve_label(dst, network_map, friendly_names, manual_labels, unifi_networks),
-        "dst_class": (identities.get(dst) or {}).get("device_class"),
+        "dst_name": dst_info.get("hostname"),
+        "dst_class": dst_info.get("device_class"),
         "proto": PROTO_NAMES.get(proto, str(proto)),
         "port": port,
         "port_hint": describe_port(proto, port),

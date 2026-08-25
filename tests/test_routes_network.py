@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"
 from app import db
 from app.unifi import sync
 from app.unifi.capability_probe import CapabilityResult, ProbeReport
-from app.web.routes_network import _load_clients, _load_devices, _load_policies, _load_zones, unifi_available
+from app.web.routes_network import _load_clients, _load_devices, _load_networks, _load_policies, _load_zones, unifi_available
 
 NOW = time.time()
 
@@ -133,3 +133,38 @@ def test_load_clients_ignores_an_unparseable_connected_at(tmp_path):
 
     clients = _load_clients(conn)
     assert clients[0]["connected_at"] is None
+
+
+def test_load_clients_includes_vendor_from_mac(tmp_path, monkeypatch):
+    # UniFi's own console shows vendor the same way -- inferred from the
+    # MAC's OUI, not a field the API itself sends.
+    import app.web.routes_network as routes_network
+
+    monkeypatch.setattr(routes_network, "lookup_vendor", lambda mac: "Apple, Inc." if mac == "aa:bb" else None)
+    conn = db.connect(tmp_path / "zerotrust.db")
+    _insert_client(conn, "c1", None)
+    conn.commit()
+
+    clients = _load_clients(conn)
+    assert clients[0]["vendor"] == "Apple, Inc."
+
+
+def test_load_networks_includes_client_count(tmp_path):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    conn.execute(
+        "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) "
+        "VALUES ('n1', 'IoT', 10, '192.168.10.0/24', '{}', ?)", (NOW,),
+    )
+    conn.execute(
+        "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) "
+        "VALUES ('n2', 'Guest', 20, '192.168.20.0/24', '{}', ?)", (NOW,),
+    )
+    _insert_client(conn, "c1", None)
+    conn.execute("UPDATE unifi_clients SET network_id = 'n1' WHERE id = 'c1'")
+    _insert_client(conn, "c2", None)
+    conn.execute("UPDATE unifi_clients SET network_id = 'n1' WHERE id = 'c2'")
+    conn.commit()
+
+    networks = _load_networks(conn)
+    by_name = {n["name"]: n["client_count"] for n in networks}
+    assert by_name == {"IoT": 2, "Guest": 0}

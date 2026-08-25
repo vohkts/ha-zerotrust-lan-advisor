@@ -166,32 +166,44 @@ document.addEventListener("click", (event) => {
   }
 });
 
-// Client-side pagination for any data table (UniFi's policies list alone
-// can run into the hundreds). Everything is already rendered server-side
-// in one page load — no new route, no re-fetch — this just hides rows
-// outside the current page and adds Previous/Next controls after the
-// table. Applied automatically to every table with more than PAGE_SIZE
-// rows; a short table is left completely alone.
+// Client-side pagination (UniFi's policies list alone can run into the
+// hundreds) plus optional live text filtering, for any data table.
+// Everything is already rendered server-side in one page load — no new
+// route, no re-fetch — this just hides rows and adds Previous/Next
+// controls after the table. Pagination applies automatically to every
+// table over PAGE_SIZE rows; a short table is left alone unless it also
+// has a filter input. Filtering only runs where a page explicitly adds
+// <input data-filter-for="table-id"> above a table (see network.html) —
+// matches against the row's full text, case-insensitive, so one box
+// covers name/IP/MAC/vendor/zone/etc. without a filter per column.
 const TABLE_PAGE_SIZE = 25;
 
-function paginateTable(table) {
+function setupTable(table) {
   const tbody = table.querySelector("tbody");
   if (!tbody) return;
-  const rows = Array.from(tbody.querySelectorAll("tr"));
-  if (rows.length <= TABLE_PAGE_SIZE) return;
+  const allRows = Array.from(tbody.querySelectorAll("tr"));
+  if (allRows.length === 0) return;
 
-  const totalPages = Math.ceil(rows.length / TABLE_PAGE_SIZE);
   const controls = document.createElement("div");
   controls.className = "table-pagination";
   table.insertAdjacentElement("afterend", controls);
 
+  let query = "";
   let page = 0;
 
   function render() {
+    const matching = query ? allRows.filter((row) => row.textContent.toLowerCase().includes(query)) : allRows;
+    const totalPages = Math.max(1, Math.ceil(matching.length / TABLE_PAGE_SIZE));
+    if (page >= totalPages) page = 0;
     const start = page * TABLE_PAGE_SIZE;
-    rows.forEach((row, i) => {
-      row.hidden = i < start || i >= start + TABLE_PAGE_SIZE;
-    });
+    const visible = new Set(matching.slice(start, start + TABLE_PAGE_SIZE));
+    for (const row of allRows) row.hidden = !visible.has(row);
+
+    const needsControls = matching.length > TABLE_PAGE_SIZE || (query && matching.length !== allRows.length);
+    if (!needsControls) {
+      controls.replaceChildren();
+      return;
+    }
 
     const prev = document.createElement("button");
     prev.type = "button";
@@ -204,7 +216,9 @@ function paginateTable(table) {
 
     const status = document.createElement("span");
     status.className = "hint";
-    status.textContent = `Page ${page + 1} of ${totalPages} (${rows.length} total)`;
+    status.textContent = query
+      ? `Page ${page + 1} of ${totalPages} (${matching.length} of ${allRows.length} match)`
+      : `Page ${page + 1} of ${totalPages} (${allRows.length} total)`;
 
     const next = document.createElement("button");
     next.type = "button";
@@ -218,7 +232,19 @@ function paginateTable(table) {
     controls.replaceChildren(prev, status, next);
   }
 
+  table._ztaSetFilter = (q) => {
+    query = q.trim().toLowerCase();
+    page = 0;
+    render();
+  };
+
   render();
 }
 
-document.querySelectorAll("table.status-table").forEach(paginateTable);
+document.querySelectorAll("table.status-table").forEach(setupTable);
+
+document.querySelectorAll("[data-filter-for]").forEach((input) => {
+  const table = document.getElementById(input.dataset.filterFor);
+  if (!table || !table._ztaSetFilter) return;
+  input.addEventListener("input", () => table._ztaSetFilter(input.value));
+});

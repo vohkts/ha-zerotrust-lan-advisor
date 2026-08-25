@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% macro endpoint(ip, name, device_class, network) %}{{ ip }}{% if name %} <strong>({{ name }})</strong>{% elif device_class %} <strong>({{ device_class }})</strong>{% endif %} <span class="hint">[{{ network }}]</span>{% endmacro %}
 {% block content %}
 <h2>Traffic</h2>
 <p class="hint">Last {{ window_days }} days, {{ total_events }} events
@@ -135,8 +136,8 @@
     <tbody>
       {% for f in top_flows %}
       <tr>
-        <td>{{ f.src }} <span class="hint">({{ f.src_network }})</span></td>
-        <td>{{ f.dst }} <span class="hint">({{ f.dst_network }})</span></td>
+        <td>{{ endpoint(f.src, f.src_name, f.src_class, f.src_network) }}</td>
+        <td>{{ endpoint(f.dst, f.dst_name, f.dst_class, f.dst_network) }}</td>
         <td>{{ f.proto }}/{{ f.port if f.port is not none else 'any' }}
             {% if f.port_hint %}<span class="hint">— {{ f.port_hint }}</span>{% endif %}</td>
         <td>{{ f.count }}</td>
@@ -159,8 +160,8 @@
     <tbody>
       {% for f in recent_examples %}
       <tr>
-        <td>{{ f.src }} <span class="hint">({{ f.src_network }})</span></td>
-        <td>{{ f.dst }} <span class="hint">({{ f.dst_network }})</span></td>
+        <td>{{ endpoint(f.src, f.src_name, f.src_class, f.src_network) }}</td>
+        <td>{{ endpoint(f.dst, f.dst_name, f.dst_class, f.dst_network) }}</td>
         <td>{{ f.proto }}/{{ f.port if f.port is not none else 'any' }}
             {% if f.port_hint %}<span class="hint">— {{ f.port_hint }}</span>{% endif %}</td>
         <td>{{ f.count }}</td>

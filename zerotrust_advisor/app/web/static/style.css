@@ -183,6 +183,20 @@ table.status-table tbody tr:last-child td { border-bottom: none; }
 }
 .table-pagination button:hover { background: var(--border); }
 
+input.table-filter {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 0 0.6rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
 .chip {
   display: inline-block;
   padding: 0.1rem 0.55rem;

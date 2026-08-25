@@ -169,6 +169,15 @@ def test_top_flows_aggregates_by_full_key_and_counts_occurrences():
     assert busiest["port_hint"] == "AirPlay"
 
 
+def test_top_flows_include_known_device_name_and_class():
+    identities = {"192.168.10.5": {"hostname": "Johns-iPhone", "device_class": "iPhone", "confidence": "high"}}
+    top_flows, _ = _build_flow_tables(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, identities, _events())
+    busiest = top_flows[0]
+    assert busiest["src_name"] == "Johns-iPhone"
+    assert busiest["src_class"] == "iPhone"
+    assert busiest["dst_name"] is None  # 192.168.20.9 has no identity known
+
+
 def test_recent_examples_deduplicated_and_capped():
     events = [_Event(ts=100 + i, src_ip="192.168.10.5", dst_ip="192.168.20.9", proto=6, dst_port=7000) for i in range(150)]
     _, recent = _build_flow_tables(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, events)
