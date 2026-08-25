@@ -16,11 +16,16 @@ compute correct relative-URL depth for an Ingress-prefixed redirect.
 from __future__ import annotations
 
 import json
+import logging
+import threading
 
 from flask import Blueprint, current_app, jsonify, render_template
 
 from app.analysis.runner import is_running, run_analysis_now
+from app.db import connect
 from app.web.db_context import get_db
+
+logger = logging.getLogger(__name__)
 
 recommendations_bp = Blueprint("recommendations", __name__)
 
@@ -88,15 +93,34 @@ def progress():
 
 @recommendations_bp.route("/recommendations/run-now", methods=["POST"])
 def run_now():
-    conn = get_db()
-    config = current_app.config["ZTA_CONFIG"]
-    result = run_analysis_now(conn, config)
-    if result is None:
+    """Starts the pass in a background thread and returns immediately —
+    reported live: waiting on the full pass here (potentially many
+    minutes; each new pattern needs its own LLM call) got the request
+    killed with a 504 by the proxy chain in front of this add-on before
+    Flask ever finished responding. The GUI already polls
+    /recommendations/progress for live counts (see static/app.js); that
+    same poll now also detects completion via `running` flipping back to
+    False, so nothing here needs to wait on the pass to answer.
+
+    A fresh, separate database connection — not the request-scoped one
+    from get_db() — since that one is closed when this request ends
+    (see db_context.py), long before the background thread is done with
+    it; same one-connection-per-thread rule as server.py's own
+    background loop.
+    """
+    if is_running():
         return jsonify({"status": "already_running"}), 409
-    return jsonify(
-        {
-            "status": "ok",
-            "new_recommendations": result.zero_trust_written,
-            "new_setup_findings": result.setup_written,
-        }
-    )
+
+    config = current_app.config["ZTA_CONFIG"]
+
+    def _run() -> None:
+        conn = connect(config.db_path)
+        try:
+            run_analysis_now(conn, config)
+        except Exception:
+            logger.exception("background analysis pass failed")
+        finally:
+            conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"status": "started"})

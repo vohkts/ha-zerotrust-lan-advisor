@@ -50,9 +50,15 @@ class _Event:
     dst_port: int | None
 
 
-def _load_events(conn, since: float) -> list[_Event]:
+def _load_events(conn, since: float, unifi_host: str | None = None) -> tuple[list[_Event], int]:
     """Newest first, each source bounded independently so a burst on one
-    receiver can't starve the other out of the page entirely."""
+    receiver can't starve the other out of the page entirely. Returns
+    (events, count excluded as UDM console traffic) — the console's own
+    management IP (DNS/DHCP served to every device, health checks, etc.)
+    is infrastructure noise, not a segmentation decision, same reasoning
+    as the existing own-receiver-traffic filter. `_count_events`'s
+    headline total deliberately does *not* apply this filter — same
+    "honest total vs. what's shown" split as the external-IP host filter."""
     fw_rows = conn.execute(
         "SELECT ts, src_ip, dst_ip, proto, dst_port FROM events_firewall "
         "WHERE ts >= ? ORDER BY ts DESC LIMIT ?",
@@ -64,8 +70,19 @@ def _load_events(conn, since: float) -> list[_Event]:
         (since, _MAX_ROWS_PER_TABLE),
     ).fetchall()
     events = [_Event(*row) for row in fw_rows] + [_Event(*row) for row in flow_rows]
+
+    hidden = 0
+    if unifi_host:
+        filtered = []
+        for e in events:
+            if e.src_ip == unifi_host or e.dst_ip == unifi_host:
+                hidden += 1
+                continue
+            filtered.append(e)
+        events = filtered
+
     events.sort(key=lambda e: e.ts, reverse=True)
-    return events
+    return events, hidden
 
 
 def _count_events(conn, since: float) -> int:
@@ -191,8 +208,10 @@ def _build_host_rows(network_map, friendly_names, manual_labels, identities, eve
         rows.append(
             {
                 "ip": ip,
+                "name": info.get("hostname"),
                 "network": resolve_label(ip, network_map, friendly_names, manual_labels, unifi_networks),
                 "device_class": info.get("device_class") or "Unclassified",
+                "vendor": info.get("vendor"),
                 "confidence": info.get("confidence") or "low",
                 "events": count,
                 "first_seen": first_seen.get(ip),
@@ -242,7 +261,8 @@ def traffic_page():
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)
     unifi_networks = load_unifi_networks(conn)
-    events = _load_events(conn, since)
+    console_filter = config.unifi_host if config.ignore_unifi_console_traffic else None
+    events, hidden_console_count = _load_events(conn, since, console_filter)
     identities = _load_identities(conn)
 
     direction_counts = count_directions([(e.src_ip, e.dst_ip) for e in events])
@@ -258,6 +278,7 @@ def traffic_page():
         "traffic.html",
         total_events=_count_events(conn, since),
         sampled_events=len(events),
+        hidden_console_count=hidden_console_count,
         direction_counts=direction_counts,
         network_rows=network_rows,
         hidden_network_count=hidden_network_count,

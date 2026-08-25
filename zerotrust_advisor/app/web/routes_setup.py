@@ -193,6 +193,7 @@ def save_settings():
             "unifi_verify_tls": "unifi_verify_tls" in form,
             "unifi_apply_mode": form.get("unifi_apply_mode", "manual"),
             "display_timezone_utc": "display_timezone_utc" in form,
+            "ignore_unifi_console_traffic": "ignore_unifi_console_traffic" in form,
         }
     )
 

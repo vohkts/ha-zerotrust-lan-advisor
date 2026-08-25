@@ -206,6 +206,11 @@
       <input type="checkbox" name="unifi_verify_tls" id="unifi_verify_tls" {% if config.unifi_verify_tls %}checked{% endif %}>
       Verify the console's TLS certificate (leave off for a local UDM's self-signed cert)
     </label>
+    <label>
+      <input type="checkbox" name="ignore_unifi_console_traffic" {% if config.ignore_unifi_console_traffic %}checked{% endif %}>
+      Ignore traffic to/from the UniFi console itself in Traffic and Recommendations (DNS/DHCP served to every
+      device, health checks, etc. — infrastructure noise, not a segmentation decision)
+    </label>
 
     <button type="button" id="unifi-test-btn">Test connection</button>
     <div id="unifi-test-result" class="unifi-test-result" aria-live="polite"></div>

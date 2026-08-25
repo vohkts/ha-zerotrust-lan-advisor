@@ -35,6 +35,7 @@ DEFAULTS = {
     "unifi_verify_tls": False,
     "unifi_apply_mode": "manual",
     "display_timezone_utc": False,
+    "ignore_unifi_console_traffic": True,
 }
 
 
@@ -64,6 +65,13 @@ class Config:
     # get_timezone()), falling back to UTC if that can't be determined.
     # This flips the default back to plain UTC for anyone who prefers it.
     display_timezone_utc: bool
+    # The UDM console's own management IP dominates Hosts/flow tables with
+    # infrastructure noise (DNS/DHCP served to every device, health checks,
+    # etc.) that isn't a segmentation decision — same "expected, not
+    # interesting" reasoning as ignore_own_receiver_traffic, just for a
+    # different known-infrastructure address. Only takes effect once
+    # unifi_host is actually set.
+    ignore_unifi_console_traffic: bool
 
     @property
     def db_path(self) -> Path:
@@ -99,6 +107,7 @@ def load_config() -> Config:
         unifi_verify_tls=bool(raw["unifi_verify_tls"]),
         unifi_apply_mode=str(raw["unifi_apply_mode"]),
         display_timezone_utc=bool(raw["display_timezone_utc"]),
+        ignore_unifi_console_traffic=bool(raw["ignore_unifi_console_traffic"]),
     )
 
 

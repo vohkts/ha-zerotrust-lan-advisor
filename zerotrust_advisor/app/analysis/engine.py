@@ -52,6 +52,7 @@ def _load_events(
     netflow_port: int,
     ignore_own_receiver_traffic: bool,
     unifi_networks: list | None = None,
+    unifi_console_host: str | None = None,
 ) -> list[GroupableEvent]:
     events: list[GroupableEvent] = []
 
@@ -65,6 +66,12 @@ def _load_events(
         ):
             # The router logging its own log-forwarding traffic to this
             # add-on's receiver — expected and intentional, not a
+            # segmentation decision worth a recommendation.
+            continue
+        if unifi_console_host and (src_ip == unifi_console_host or dst_ip == unifi_console_host):
+            # Same reasoning as the receiver-traffic skip above, for the
+            # UDM console's own management IP — infrastructure noise
+            # (DNS/DHCP served to every device, health checks), not a
             # segmentation decision worth a recommendation.
             continue
         src_label = resolve_label(src_ip, network_map, friendly_names, manual_labels, unifi_networks)
@@ -163,6 +170,7 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
         syslog_port=config.syslog_port, netflow_port=config.netflow_port,
         ignore_own_receiver_traffic=config.ignore_own_receiver_traffic,
         unifi_networks=unifi_networks,
+        unifi_console_host=config.unifi_host if config.ignore_unifi_console_traffic else None,
     )
     patterns = group_candidate_patterns(events, min_recurring_days=config.min_recurring_days)
 

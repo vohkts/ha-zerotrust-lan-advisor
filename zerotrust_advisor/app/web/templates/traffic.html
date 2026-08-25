@@ -4,7 +4,9 @@
 <h2>Traffic</h2>
 <p class="hint">Last {{ window_days }} days, {{ total_events }} events
    {% if total_events > sampled_events %}(the tables below are built from the most recent {{ sampled_events }}, for performance){% endif %}.
-   Real local IPs/hostnames — this page never leaves the box, so nothing here is pseudonymized.</p>
+   Real local IPs/hostnames — this page never leaves the box, so nothing here is pseudonymized.
+   {% if hidden_console_count %}{{ hidden_console_count }} events to/from the UniFi console itself were excluded
+   as infrastructure noise (Settings &rarr; "Ignore traffic to/from the UniFi console itself").{% endif %}</p>
 
 <section>
   <h3>Are we seeing traffic between hosts on your own networks?</h3>
@@ -113,9 +115,15 @@
     <tbody>
       {% for h in host_rows %}
       <tr>
-        <td>{{ h.ip }}</td>
+        <td>{{ h.ip }}{% if h.name %} <strong>({{ h.name }})</strong>{% endif %}</td>
         <td>{{ h.network }}</td>
-        <td>{{ h.device_class }} <span class="hint">({{ h.confidence }})</span></td>
+        <td>
+          {{ h.device_class }}
+          {% if h.device_class == 'Unclassified device' and h.vendor %}
+            <span class="hint">— vendor: {{ h.vendor }}</span>
+          {% endif %}
+          <span class="hint">({{ h.confidence }})</span>
+        </td>
         <td>{{ h.events }}</td>
         <td>{{ h.first_seen | fmt_time }}</td>
         <td>{{ h.last_seen | fmt_time }}</td>

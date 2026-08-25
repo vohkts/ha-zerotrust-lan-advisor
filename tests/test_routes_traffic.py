@@ -8,7 +8,7 @@ import ipaddress
 from app.analysis.netlabels import parse_network_labels
 from app.analysis.network_map import DiscoveredNetwork, NetworkMap, UnifiNetworkInfo
 from app.db import connect
-from app.web.routes_traffic import _Event, _build_flow_tables, _build_host_rows, _build_network_rows, _count_events
+from app.web.routes_traffic import _Event, _build_flow_tables, _build_host_rows, _build_network_rows, _count_events, _load_events
 
 NETWORK_MAP = NetworkMap(
     networks=[
@@ -140,6 +140,20 @@ def test_host_rows_use_identity_when_available():
     assert row["confidence"] == "high"
 
 
+def test_host_rows_include_known_name_and_vendor():
+    # Real gap: the Hosts table only ever showed a bare IP, even when the
+    # device's real name (from mDNS or UniFi) was already known and
+    # already shown on Top Flows.
+    identities = {
+        "192.168.10.5": {"hostname": "Homeassistant", "device_class": "Unclassified device",
+                          "vendor": "Synology, Inc.", "confidence": "low"},
+    }
+    rows, _hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, identities, _events())
+    row = next(r for r in rows if r["ip"] == "192.168.10.5")
+    assert row["name"] == "Homeassistant"
+    assert row["vendor"] == "Synology, Inc."
+
+
 def test_manual_label_override_wins_over_discovered_network():
     manual = parse_network_labels(["192.168.10.0/24=ManualOverride"])
     rows, _hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, manual, {}, _events())
@@ -204,3 +218,33 @@ def test_count_events_reports_the_true_total_not_a_capped_sample(tmp_path):
         )
     conn.commit()
     assert _count_events(conn, since=0) == 8
+
+
+def test_load_events_excludes_unifi_console_traffic_when_a_host_is_given(tmp_path):
+    conn = connect(tmp_path / "zerotrust.db")
+    conn.execute(
+        "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, iface_in, iface_out, rule_prefix, action, received_at) "
+        "VALUES (100, '10.0.0.1', '10.0.0.2', 6, NULL, NULL, NULL, 'ALLOW', 100)"
+    )
+    conn.execute(
+        "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, iface_in, iface_out, rule_prefix, action, received_at) "
+        "VALUES (101, '10.0.0.5', '10.0.0.1', 6, NULL, NULL, NULL, 'ALLOW', 101)"
+    )
+    conn.commit()
+
+    events, hidden = _load_events(conn, since=0, unifi_host="10.0.0.1")
+    assert events == []
+    assert hidden == 2
+
+
+def test_load_events_keeps_everything_when_no_console_host_is_given(tmp_path):
+    conn = connect(tmp_path / "zerotrust.db")
+    conn.execute(
+        "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, iface_in, iface_out, rule_prefix, action, received_at) "
+        "VALUES (100, '10.0.0.1', '10.0.0.2', 6, NULL, NULL, NULL, 'ALLOW', 100)"
+    )
+    conn.commit()
+
+    events, hidden = _load_events(conn, since=0, unifi_host=None)
+    assert len(events) == 1
+    assert hidden == 0

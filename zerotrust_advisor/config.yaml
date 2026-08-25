@@ -41,6 +41,7 @@ options:
   unifi_verify_tls: false
   unifi_apply_mode: manual
   display_timezone_utc: false
+  ignore_unifi_console_traffic: true
 schema:
   syslog_port: port
   netflow_port: port
@@ -60,3 +61,4 @@ schema:
   unifi_verify_tls: bool
   unifi_apply_mode: list(manual|automatic)
   display_timezone_utc: bool
+  ignore_unifi_console_traffic: bool

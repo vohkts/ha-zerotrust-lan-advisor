@@ -43,11 +43,13 @@ document.addEventListener("click", async (event) => {
 
 // "Run analysis now" — this can genuinely take anywhere from a few
 // seconds (nothing new) to several minutes (each new pattern needs its
-// own LLM call, roughly a minute on typical hardware), and a plain
-// disabled button with no feedback for that long reads as frozen, not
-// busy. Every recommendation commits to the database the instant it's
-// found (see engine.py), so polling the live count while this runs is
-// real progress, not a fake spinner.
+// own LLM call, roughly a minute on typical hardware). The POST below
+// only *starts* the pass in a background thread and returns right away
+// (see routes_recommendations.py) — waiting on the full pass here used to
+// get the request killed with a 504 by the proxy chain in front of this
+// add-on, reported live. Completion is detected the same way progress
+// is: polling, watching `running` flip back to False, not by waiting on
+// this fetch to resolve.
 const runNowBtn = document.getElementById("run-now");
 if (runNowBtn) {
   runNowBtn.addEventListener("click", async () => {
@@ -62,40 +64,43 @@ if (runNowBtn) {
       // have a "new since you clicked" count to show.
     }
 
-    statusEl.textContent =
-      "Running… this can take from a few seconds to several minutes, roughly a minute per new pattern found.";
-
-    const pollTimer = setInterval(async () => {
-      try {
-        const body = await (await fetch("recommendations/progress")).json();
-        const newZt = body.zero_trust_count - baseline.zero_trust_count;
-        const newSetup = body.setup_count - baseline.setup_count;
-        if (newZt > 0 || newSetup > 0) {
-          statusEl.textContent = `Running… ${newZt} new recommendation(s), ${newSetup} new setup finding(s) so far.`;
-        }
-      } catch {
-        // A missed poll just means one stale status update — the next
-        // tick (or the final response below) will catch up.
-      }
-    }, 4000);
-
     try {
       const response = await fetch("recommendations/run-now", { method: "POST" });
       if (!response.ok && response.status !== 409) {
         throw new Error(`request failed: ${response.status}`);
       }
       const body = await response.json();
-      statusEl.textContent =
-        body.status === "already_running"
-          ? "An analysis pass is already running."
-          : `Done — ${body.new_recommendations} new recommendation(s), ${body.new_setup_findings} new setup finding(s).`;
-      window.location.reload();
+      if (body.status === "already_running") {
+        statusEl.textContent = "An analysis pass is already running.";
+        runNowBtn.disabled = false;
+        return;
+      }
     } catch (err) {
       runNowBtn.disabled = false;
       statusEl.textContent = `Something went wrong: ${err.message}`;
-    } finally {
-      clearInterval(pollTimer);
+      return;
     }
+
+    statusEl.textContent =
+      "Running… this can take from a few seconds to several minutes, roughly a minute per new pattern found.";
+
+    const pollTimer = setInterval(async () => {
+      let body;
+      try {
+        body = await (await fetch("recommendations/progress")).json();
+      } catch {
+        return; // a missed poll just means one stale status update; the next tick catches up
+      }
+      const newZt = body.zero_trust_count - baseline.zero_trust_count;
+      const newSetup = body.setup_count - baseline.setup_count;
+      if (body.running) {
+        statusEl.textContent = `Running… ${newZt} new recommendation(s), ${newSetup} new setup finding(s) so far.`;
+        return;
+      }
+      clearInterval(pollTimer);
+      statusEl.textContent = `Done — ${newZt} new recommendation(s), ${newSetup} new setup finding(s).`;
+      window.location.reload();
+    }, 4000);
   });
 }
 

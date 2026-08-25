@@ -47,3 +47,6 @@ configuration:
   display_timezone_utc:
     name: Display times in UTC
     description: Off by default — timestamps use Home Assistant's own configured time zone. Turn on to show UTC instead.
+  ignore_unifi_console_traffic:
+    name: Ignore traffic to/from the UniFi console itself
+    description: Skip traffic to or from your UDM's own management IP (DNS/DHCP served to every device, health checks, etc.) when building Traffic tables and recommendations — that's infrastructure noise, not a segmentation decision. On by default; only applies once a console IP is set.

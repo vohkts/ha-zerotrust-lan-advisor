@@ -46,6 +46,7 @@ def _config(**overrides):
         unifi_verify_tls=False,
         unifi_apply_mode="manual",
         display_timezone_utc=False,
+        ignore_unifi_console_traffic=True,
     )
     base.update(overrides)
     return Config(**base)
@@ -122,6 +123,48 @@ def test_own_receiver_traffic_never_becomes_a_recommendation(tmp_path, monkeypat
     result = engine.run_analysis_pass(conn, _config())
     assert result.zero_trust_written == 0
     assert conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0] == 0
+
+
+def test_unifi_console_traffic_never_becomes_a_recommendation(tmp_path, monkeypatch):
+    # The UDM console's own management IP -- DNS/DHCP served to every
+    # device, health checks, etc. -- same "infrastructure noise, not a
+    # segmentation decision" reasoning as own-receiver traffic.
+    monkeypatch.setattr(engine, "get_host_ip", lambda: None)
+    monkeypatch.setattr(engine, "chat_completion", lambda *a, **k: json.dumps(FAKE_RECOMMENDATION))
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    base_ts = time.time() - 3 * 86400
+    for day in range(3):
+        conn.execute(
+            """INSERT INTO events_firewall
+               (ts, src_ip, dst_ip, src_port, dst_port, proto, action, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (base_ts + day * 86400, "192.168.10.5", "192.168.1.1", 51000, 53, 17, "ALLOW", base_ts),
+        )
+    conn.commit()
+
+    result = engine.run_analysis_pass(conn, _config(unifi_host="192.168.1.1", ignore_unifi_console_traffic=True))
+    assert result.zero_trust_written == 0
+    assert conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0] == 0
+
+
+def test_unifi_console_traffic_toggle_off_lets_it_through(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine, "get_host_ip", lambda: None)
+    monkeypatch.setattr(engine, "chat_completion", lambda *a, **k: json.dumps(FAKE_RECOMMENDATION))
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    base_ts = time.time() - 3 * 86400
+    for day in range(3):
+        conn.execute(
+            """INSERT INTO events_firewall
+               (ts, src_ip, dst_ip, src_port, dst_port, proto, action, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (base_ts + day * 86400, "192.168.10.5", "192.168.1.1", 51000, 53, 17, "ALLOW", base_ts),
+        )
+    conn.commit()
+
+    result = engine.run_analysis_pass(conn, _config(unifi_host="192.168.1.1", ignore_unifi_console_traffic=False))
+    assert result.zero_trust_written == 1
 
 
 def test_ignore_own_receiver_traffic_toggle_off_lets_it_through(tmp_path, monkeypatch):
