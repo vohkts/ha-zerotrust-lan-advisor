@@ -52,13 +52,18 @@ const unifiTestBtn = document.getElementById("unifi-test-btn");
 if (unifiTestBtn) {
   unifiTestBtn.addEventListener("click", async () => {
     const resultEl = document.getElementById("unifi-test-result");
-    const fieldset = document.getElementById("unifi-fieldset");
+    // FormData only accepts an actual <form>, not the <fieldset> around
+    // these inputs — this used to pass the fieldset directly, which throws
+    // a TypeError before the request is even sent. Every other field in
+    // the enclosing settings form rides along harmlessly; the server route
+    // only reads the three unifi_* fields it cares about.
+    const form = unifiTestBtn.closest("form");
     unifiTestBtn.disabled = true;
     resultEl.textContent = "Testing…";
     resultEl.className = "unifi-test-result";
 
     try {
-      const response = await fetch("settings/unifi/test", { method: "POST", body: new FormData(fieldset) });
+      const response = await fetch("settings/unifi/test", { method: "POST", body: new FormData(form) });
       const rawText = await response.text();
       let body;
       try {
