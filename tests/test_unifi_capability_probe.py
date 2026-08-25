@@ -66,6 +66,27 @@ def test_bad_key_reports_reachable_but_auth_failed():
     assert report.capabilities[0].ok is False
 
 
+def test_401_auth_failure_explains_the_console_vs_network_app_key_mixup():
+    client = _FakeClient(info_error=UnifiError("401 Unauthorized"))
+    report = probe(client)
+    detail = report.capabilities[0].detail
+    assert "401 Unauthorized" in detail  # raw error kept, not replaced
+    assert "console level" in detail
+    assert "Network application" in detail
+
+
+def test_403_auth_failure_gets_the_same_guidance():
+    client = _FakeClient(info_error=UnifiError("403 Forbidden"))
+    report = probe(client)
+    assert "console level" in report.capabilities[0].detail
+
+
+def test_other_auth_failures_are_not_given_the_key_placement_guidance():
+    client = _FakeClient(info_error=UnifiError("500 Internal Server Error"))
+    report = probe(client)
+    assert report.capabilities[0].detail == "500 Internal Server Error"
+
+
 def test_no_sites_available_marks_everything_else_untested():
     client = _FakeClient(sites=[])
     report = probe(client)

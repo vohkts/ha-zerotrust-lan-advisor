@@ -100,9 +100,16 @@ regardless of any setting below.
 
 **Setup**, all from the Settings screen:
 
-1. In UniFi's own UI, create a Network Integration API key (Network
-   Application → Settings → Control Plane → Integrations, or similar —
-   this menu path moves between versions).
+1. Create the API key **at the console (UniFi OS) level, not inside the
+   Network application's own settings** — UniFi OS → Control Plane →
+   Integrations, or similar (this menu path moves between versions). This
+   distinction matters: only the console-level key screen lets you grant
+   the key access to a specific application (Network) in the first place.
+   A key created inside the Network application's own settings looks
+   similar but isn't the right kind of key for this API — confirmed live:
+   it authenticates against the wrong thing and fails with a plain "401
+   Unauthorized" that gives no hint why. If Test Connection (below) shows
+   exactly that, this is almost always the cause.
 2. Enter your console's IP or hostname and the key in this add-on's
    Settings screen, under "UniFi integration". Leave "Verify TLS
    certificate" off unless your console has a certificate your system

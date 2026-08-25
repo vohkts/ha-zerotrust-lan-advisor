@@ -49,7 +49,7 @@ def probe(client: UnifiClientAPI) -> ProbeReport:
         # distinct from "unreachable" so the UI can say "wrong key" rather
         # than "wrong IP".
         return ProbeReport(checked_at=now, reachable=True, site_id=None, capabilities=[
-            CapabilityResult("auth", "Authenticate with this API key", False, str(exc)),
+            CapabilityResult("auth", "Authenticate with this API key", False, _explain_auth_failure(exc)),
         ])
 
     version = info.get("applicationVersion", "unknown")
@@ -90,3 +90,26 @@ def probe(client: UnifiClientAPI) -> ProbeReport:
             capabilities.append(CapabilityResult(key, label, False, str(exc)))
 
     return ProbeReport(checked_at=now, reachable=True, site_id=site_id, capabilities=capabilities)
+
+
+def _explain_auth_failure(exc: UnifiError) -> str:
+    """A 401/403 on the very first call (/info) has one dominant real-world
+    cause, confirmed against a live console: the key was created inside the
+    Network application's own settings instead of at the console (UniFi OS)
+    level. Only the console-level key screen lets you grant it access to a
+    specific application (Network) in the first place — a key made inside
+    the Network application isn't the right kind of key for this API at
+    all, and UniFi's own error here is just "401", with nothing pointing
+    the user at that distinction. Appending the guidance directly to the
+    detail text, not replacing it — the raw status is still worth showing.
+    """
+    detail = str(exc)
+    if "401" in detail or "403" in detail:
+        return (
+            f"{detail}\nThis usually means the key was created in the wrong place: inside the "
+            "Network application's own settings, rather than at the console level. Create the key "
+            "from the console's own settings (UniFi OS → Control Plane → Integrations, not "
+            "inside the Network application) — that's the only place you can grant it access to the "
+            "Network application."
+        )
+    return detail
