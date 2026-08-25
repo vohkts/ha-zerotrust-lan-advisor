@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Flask, current_app, redirect
 from waitress import serve
@@ -15,10 +16,10 @@ from waitress import serve
 from app.analysis.runner import run_analysis_now
 from app.config import Config, load_config
 from app.db import connect
+from app.supervisor import get_timezone
 from app.web.db_context import close_db, get_db
 from app.web.routes_network import network_bp, unifi_available
 from app.web.routes_recommendations import recommendations_bp
-from app.web.routes_settings import settings_bp
 from app.web.routes_setup import setup_bp
 from app.web.routes_traffic import traffic_bp
 
@@ -27,11 +28,38 @@ logger = logging.getLogger(__name__)
 _ANALYSIS_INTERVAL_SECONDS = 3600
 _LISTEN_PORT = 8099
 
+# Home Assistant's configured timezone barely ever changes mid-run, and
+# fetching it is a Supervisor API call — looked up once per process and
+# cached, not once per timestamp rendered.
+_cached_tz_name: str | None = None
+_tz_lookup_attempted = False
 
-def _format_timestamp(ts: float | None) -> str:
+
+def _resolve_tz_name() -> str | None:
+    global _cached_tz_name, _tz_lookup_attempted
+    if not _tz_lookup_attempted:
+        _tz_lookup_attempted = True
+        _cached_tz_name = get_timezone()
+    return _cached_tz_name
+
+
+def format_timestamp(ts: float | None, display_timezone_utc: bool, tz_name: str | None) -> str:
+    """Defaults to Home Assistant's own configured timezone rather than a
+    fixed UTC nobody actually asked for; `display_timezone_utc` (a Settings
+    toggle) or a missing/invalid `tz_name` both fall back to plain UTC."""
     if not ts:
         return "never"
+    if not display_timezone_utc and tz_name:
+        try:
+            return datetime.fromtimestamp(ts, tz=ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M %Z")
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _format_timestamp(ts: float | None) -> str:
+    config = current_app.config["ZTA_CONFIG"]
+    return format_timestamp(ts, config.display_timezone_utc, _resolve_tz_name())
 
 
 def create_app() -> Flask:
@@ -41,7 +69,6 @@ def create_app() -> Flask:
     app.register_blueprint(setup_bp)
     app.register_blueprint(traffic_bp)
     app.register_blueprint(recommendations_bp)
-    app.register_blueprint(settings_bp)
     app.register_blueprint(network_bp)
 
     app.teardown_appcontext(close_db)
@@ -57,12 +84,13 @@ def create_app() -> Flask:
 
     @app.route("/")
     def index():
-        # A relative redirect, not url_for("setup.setup_page") — Ingress
-        # serves this app under a per-install path prefix it never tells
-        # the app about, so any absolute, leading-slash path would point
-        # the browser at the wrong place. See templates/base.html for the
-        # same rule applied to every link this app renders.
-        return redirect("setup")
+        # A relative redirect, not url_for(...) — Ingress serves this app
+        # under a per-install path prefix it never tells the app about, so
+        # any absolute, leading-slash path would point the browser at the
+        # wrong place. See templates/base.html for the same rule applied
+        # to every link this app renders. Traffic, not Setup: Setup &
+        # Settings is the last item in the nav now, not the landing page.
+        return redirect("traffic")
 
     return app
 

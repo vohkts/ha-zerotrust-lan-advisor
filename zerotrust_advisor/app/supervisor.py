@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 
 _SUPERVISOR_NETWORK_INFO_URL = "http://supervisor/network/info"
+_SUPERVISOR_INFO_URL = "http://supervisor/info"
 
 
 def get_host_ip() -> str | None:
@@ -42,3 +43,26 @@ def get_host_ip() -> str | None:
         if addresses:
             return addresses[0].split("/")[0]
     return None
+
+
+def get_timezone() -> str | None:
+    """The IANA timezone name Home Assistant itself is configured with
+    (e.g. "Europe/Berlin"), from the root Supervisor /info endpoint — only
+    needs the same hassio_api grant get_host_ip() already relies on, no
+    extra permission. Used so this add-on's own timestamps read in the
+    same timezone as the rest of Home Assistant by default, instead of a
+    fixed UTC nobody configured. Best-effort, same as get_host_ip(): None
+    if Supervisor can't be reached, so callers fall back to UTC rather
+    than failing outright.
+    """
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    request = urllib.request.Request(
+        _SUPERVISOR_INFO_URL,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+    return payload.get("data", {}).get("timezone")

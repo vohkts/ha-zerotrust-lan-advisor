@@ -34,6 +34,7 @@ DEFAULTS = {
     "unifi_host": "",
     "unifi_verify_tls": False,
     "unifi_apply_mode": "manual",
+    "display_timezone_utc": False,
 }
 
 
@@ -58,6 +59,11 @@ class Config:
     unifi_host: str
     unifi_verify_tls: bool
     unifi_apply_mode: str
+    # Every timestamp in this UI defaults to Home Assistant's own configured
+    # timezone (read from the Supervisor, see app/supervisor.py's
+    # get_timezone()), falling back to UTC if that can't be determined.
+    # This flips the default back to plain UTC for anyone who prefers it.
+    display_timezone_utc: bool
 
     @property
     def db_path(self) -> Path:
@@ -92,6 +98,7 @@ def load_config() -> Config:
         unifi_host=str(raw["unifi_host"]),
         unifi_verify_tls=bool(raw["unifi_verify_tls"]),
         unifi_apply_mode=str(raw["unifi_apply_mode"]),
+        display_timezone_utc=bool(raw["display_timezone_utc"]),
     )
 
 

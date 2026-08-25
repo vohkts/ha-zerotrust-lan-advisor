@@ -44,3 +44,6 @@ configuration:
   unifi_apply_mode:
     name: UniFi rule apply mode
     description: "Reserved for a future stage: whether zero-trust rules would be written to UniFi manually by you or automatically by the add-on. Not yet functional — the add-on never writes to UniFi today, regardless of this setting."
+  display_timezone_utc:
+    name: Display times in UTC
+    description: Off by default — timestamps use Home Assistant's own configured time zone. Turn on to show UTC instead.

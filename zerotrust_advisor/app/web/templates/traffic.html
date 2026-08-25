@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Traffic</h2>
-<p class="hint">Last {{ window_days }} days, {{ total_events }} events. Real local IPs/hostnames — this page
-   never leaves the box, so nothing here is pseudonymized.</p>
+<p class="hint">Last {{ window_days }} days, {{ total_events }} events
+   {% if total_events > sampled_events %}(the tables below are built from the most recent {{ sampled_events }}, for performance){% endif %}.
+   Real local IPs/hostnames — this page never leaves the box, so nothing here is pseudonymized.</p>
 
 <section>
   <h3>Are we seeing traffic between hosts on your own networks?</h3>

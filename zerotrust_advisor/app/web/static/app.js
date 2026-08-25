@@ -1,10 +1,14 @@
 // Highlights the current page in the sidebar. Done in JS rather than
 // passing an "active page" variable through every route/template: the last
 // path segment (Ingress prefix and all) already tells us which page this
-// is, matched against each nav link's own relative href.
+// is, matched against each nav link's own relative href. "settings" isn't
+// its own nav link (Setup & Settings share one, at "setup") — a Settings
+// save renders that same combined page directly at the /settings URL, so
+// it needs to map onto the same link rather than match nothing.
 const currentSegment = window.location.pathname.split("/").filter(Boolean).pop();
+const navSegment = currentSegment === "settings" ? "setup" : currentSegment;
 for (const link of document.querySelectorAll("nav [data-nav]")) {
-  if (link.getAttribute("href") === currentSegment) link.classList.add("active");
+  if (link.getAttribute("href") === navSegment) link.classList.add("active");
 }
 
 // Buttons with data-action post to that relative URL and reload on success.

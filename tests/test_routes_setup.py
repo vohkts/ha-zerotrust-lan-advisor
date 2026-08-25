@@ -3,8 +3,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"))
 
-from app.web import routes_settings
-from app.web.routes_settings import _api_key_error
+from app.web import routes_setup
+from app.web.routes_setup import _api_key_error
 from app.web.server import create_app
 
 
@@ -35,9 +35,9 @@ def _client(tmp_path, monkeypatch):
 
 
 def test_save_triggers_a_restart_and_says_so(tmp_path, monkeypatch):
-    monkeypatch.setattr(routes_settings, "update_options", lambda opts: None)
+    monkeypatch.setattr(routes_setup, "update_options", lambda opts: None)
     restarted = []
-    monkeypatch.setattr(routes_settings, "restart_self", lambda: restarted.append(True))
+    monkeypatch.setattr(routes_setup, "restart_self", lambda: restarted.append(True))
 
     client = _client(tmp_path, monkeypatch)
     resp = client.post("/settings", data={"unifi_host": "1.2.3.4"})
@@ -47,12 +47,12 @@ def test_save_triggers_a_restart_and_says_so(tmp_path, monkeypatch):
 
 
 def test_save_still_succeeds_when_the_restart_trigger_fails(tmp_path, monkeypatch):
-    monkeypatch.setattr(routes_settings, "update_options", lambda opts: None)
+    monkeypatch.setattr(routes_setup, "update_options", lambda opts: None)
 
     def _boom():
         raise RuntimeError("supervisor unreachable")
 
-    monkeypatch.setattr(routes_settings, "restart_self", _boom)
+    monkeypatch.setattr(routes_setup, "restart_self", _boom)
 
     client = _client(tmp_path, monkeypatch)
     resp = client.post("/settings", data={"unifi_host": "1.2.3.4"})

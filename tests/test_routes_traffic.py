@@ -5,7 +5,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"
 
 from app.analysis.netlabels import parse_network_labels
 from app.analysis.network_map import DiscoveredNetwork, NetworkMap
-from app.web.routes_traffic import _Event, _build_flow_tables, _build_host_rows, _build_network_rows
+from app.db import connect
+from app.web.routes_traffic import _Event, _build_flow_tables, _build_host_rows, _build_network_rows, _count_events
 
 NETWORK_MAP = NetworkMap(
     networks=[
@@ -97,3 +98,24 @@ def test_recent_examples_deduplicated_and_capped():
     _, recent = _build_flow_tables(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, events)
     assert len(recent) == 1  # only one distinct (src,dst,proto,port) combination exists
     assert recent[0]["count"] == 150
+
+
+def test_count_events_reports_the_true_total_not_a_capped_sample(tmp_path):
+    # Real bug: the headline "N events" figure used len(_load_events(...)),
+    # which is capped per-table for rendering performance — indistinguishable
+    # from a genuinely quiet network once a busy one hit that cap.
+    conn = connect(tmp_path / "zerotrust.db")
+    for i in range(5):
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, iface_in, iface_out, rule_prefix, action, received_at) "
+            "VALUES (?, '10.0.0.1', '10.0.0.2', 6, NULL, NULL, NULL, 'ALLOW', ?)",
+            (100 + i, 100 + i),
+        )
+    for i in range(3):
+        conn.execute(
+            "INSERT INTO events_flow (ts_start, ts_end, src_ip, dst_ip, proto, exporter_ip, received_at) "
+            "VALUES (?, ?, '10.0.0.1', '10.0.0.2', 6, '10.0.0.254', ?)",
+            (100 + i, 100 + i, 100 + i),
+        )
+    conn.commit()
+    assert _count_events(conn, since=0) == 8

@@ -32,6 +32,42 @@ def test_get_info_returns_raw_payload(monkeypatch):
     assert client.get_info()["applicationVersion"] == "10.1.84"
 
 
+def test_list_clients_paginates_through_all_pages(monkeypatch):
+    # Real bug, hit live: the Integration API defaults to limit=25 and
+    # nothing here asked for more or followed totalCount — a site with 71
+    # real clients silently showed only 25. 450 items forces three pages
+    # (200 + 200 + 50) through the real _get_all loop, not just a bigger
+    # single page.
+    all_clients = [{"id": f"c{i}", "name": f"Client{i}"} for i in range(450)]
+
+    def _fake_urlopen(request, timeout=None, context=None):
+        query = request.full_url.split("?", 1)[1] if "?" in request.full_url else ""
+        params = dict(p.split("=") for p in query.split("&") if p)
+        offset = int(params.get("offset", 0))
+        page = all_clients[offset : offset + 200]
+        body = {"data": page, "offset": offset, "limit": 200, "count": len(page), "totalCount": len(all_clients)}
+        return _FakeResponse(body)
+
+    monkeypatch.setattr("app.unifi.client.urllib.request.urlopen", _fake_urlopen)
+    client = UnifiClientAPI(host="192.168.1.1", api_key="test-key")
+    clients = client.list_clients("site-1")
+
+    assert len(clients) == 450
+    assert clients[0].id == "c0"
+    assert clients[-1].id == "c449"
+
+
+def test_pagination_stops_on_a_short_page_even_without_total_count(monkeypatch):
+    # Defensive fallback for a response missing totalCount entirely.
+    def _fake_urlopen(request, timeout=None, context=None):
+        return _FakeResponse({"data": [{"id": "only-one"}]})  # shorter than the page size, no totalCount
+
+    monkeypatch.setattr("app.unifi.client.urllib.request.urlopen", _fake_urlopen)
+    client = UnifiClientAPI(host="192.168.1.1", api_key="test-key")
+    clients = client.list_clients("site-1")
+    assert len(clients) == 1
+
+
 def test_list_sites_parses_envelope(monkeypatch):
     client = _client(monkeypatch, {"data": [{"id": "abc", "name": "Default"}]})
     sites = client.list_sites()

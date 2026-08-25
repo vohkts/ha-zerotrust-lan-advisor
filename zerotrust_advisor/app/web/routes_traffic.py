@@ -60,6 +60,17 @@ def _load_events(conn, since: float) -> list[_Event]:
     return events
 
 
+def _count_events(conn, since: float) -> int:
+    """The true total in-window, independent of `_load_events`'s per-table
+    cap — that cap exists to bound how much this page has to sort/render,
+    not to hide how much data actually exists. Reported live: the headline
+    "N events" number silently was `_MAX_ROWS_PER_TABLE * 2` on any busy
+    network, indistinguishable from a genuinely quiet one at that count."""
+    fw_count = conn.execute("SELECT COUNT(*) FROM events_firewall WHERE ts >= ?", (since,)).fetchone()[0]
+    flow_count = conn.execute("SELECT COUNT(*) FROM events_flow WHERE ts_start >= ?", (since,)).fetchone()[0]
+    return fw_count + flow_count
+
+
 def _load_identities(conn) -> dict[str, dict]:
     rows = conn.execute("SELECT ip, hostname, vendor, device_class, class_confidence FROM identities").fetchall()
     identities: dict[str, dict] = {}
@@ -183,7 +194,8 @@ def traffic_page():
 
     return render_template(
         "traffic.html",
-        total_events=len(events),
+        total_events=_count_events(conn, since),
+        sampled_events=len(events),
         direction_counts=direction_counts,
         network_rows=network_rows,
         host_rows=host_rows,

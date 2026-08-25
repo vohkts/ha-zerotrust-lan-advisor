@@ -40,6 +40,7 @@ options:
   unifi_host: ""
   unifi_verify_tls: false
   unifi_apply_mode: manual
+  display_timezone_utc: false
 schema:
   syslog_port: port
   netflow_port: port
@@ -58,3 +59,4 @@ schema:
   unifi_host: str
   unifi_verify_tls: bool
   unifi_apply_mode: list(manual|automatic)
+  display_timezone_utc: bool

@@ -20,6 +20,7 @@ def _config(tmp_path, monkeypatch, **overrides):
         retention_days=90, min_recurring_days=3, ignore_own_receiver_traffic=True,
         enable_mdns_classification=False, llm_mode="local", llm_remote_base_url="", llm_model_path="",
         unifi_enabled=False, unifi_host="", unifi_verify_tls=False, unifi_apply_mode="manual",
+        display_timezone_utc=False,
     )
     base.update(overrides)
     return Config(**base)

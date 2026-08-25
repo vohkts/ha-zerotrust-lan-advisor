@@ -2,6 +2,13 @@
 {% block content %}
 <h2>Setup</h2>
 
+<div class="tabs">
+  <button type="button" class="tab-toggle {% if active_tab != 'settings' %}active{% endif %}" data-tab="status">Status</button>
+  <button type="button" class="tab-toggle {% if active_tab == 'settings' %}active{% endif %}" data-tab="settings">Settings</button>
+</div>
+
+<div class="tab-panel" data-tab-panel="status" {% if active_tab == 'settings' %}hidden{% endif %}>
+
 <section>
   <h3>Service status</h3>
   <table class="status-table">
@@ -78,4 +85,163 @@
     </li>
   </ol>
 </section>
+
+</div>
+
+<div class="tab-panel" data-tab-panel="settings" {% if active_tab != 'settings' %}hidden{% endif %}>
+
+{% if saved and restarting %}
+<p class="chip chip-ok">Saved — restarting now to apply it (a few seconds; this page will keep working
+   once it's back).</p>
+{% elif saved %}
+<p class="chip chip-warn">Saved, but couldn't trigger a restart automatically — restart this add-on
+   manually to apply the change (Settings &rarr; Add-ons &rarr; this add-on &rarr; Restart).</p>
+{% endif %}
+{% if unifi_api_key_error %}
+<p class="chip chip-warn">UniFi API key not saved: {{ unifi_api_key_error }}</p>
+{% endif %}
+
+<form method="post" action="settings">
+  <fieldset>
+    <legend>Display</legend>
+    <label>
+      <input type="checkbox" name="display_timezone_utc" {% if config.display_timezone_utc %}checked{% endif %}>
+      Display times in UTC
+    </label>
+    <p class="hint">Off by default — timestamps use Home Assistant's own configured time zone.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Collection</legend>
+    <label>Syslog port
+      <input type="number" name="syslog_port" min="1" max="65535" value="{{ config.syslog_port }}">
+    </label>
+    <label>NetFlow/IPFIX port
+      <input type="number" name="netflow_port" min="1" max="65535" value="{{ config.netflow_port }}">
+    </label>
+    <label>Allowed source IPs (one per line)
+      <textarea name="allowed_sources" rows="3">{{ config.allowed_sources | join('\n') }}</textarea>
+    </label>
+    <label>
+      <input type="checkbox" name="enable_mdns_classification" {% if config.enable_mdns_classification %}checked{% endif %}>
+      Enable mDNS listening for better device classification (requires host networking &mdash; see DOCS.md)
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Networks</legend>
+    <p class="hint">Networks are discovered automatically from traffic — see the Traffic screen, where you
+       can name any of them. Nothing here is required.</p>
+    <label>Manual network overrides (optional, one per line, as CIDR=Label)
+      <textarea name="network_labels" rows="3" placeholder="192.168.10.0/24=IoT">{{ config.network_labels | join('\n') }}</textarea>
+    </label>
+    <p class="hint">Only needed if you want to force a specific CIDR to a name, overriding auto-discovery —
+       most people won't need this.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Recommendations</legend>
+    <label>Retention (days)
+      <input type="number" name="retention_days" min="7" max="365" value="{{ config.retention_days }}">
+    </label>
+    <label>Minimum recurring days before a pattern becomes a recommendation
+      <input type="number" name="min_recurring_days" min="1" max="30" value="{{ config.min_recurring_days }}">
+    </label>
+    <label>
+      <input type="checkbox" name="ignore_own_receiver_traffic" {% if config.ignore_own_receiver_traffic %}checked{% endif %}>
+      Ignore traffic to this add-on's own syslog/NetFlow ports (e.g. the router forwarding its own logs here)
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>LLM</legend>
+    <label>Mode
+      <select name="llm_mode">
+        <option value="local" {% if config.llm_mode == 'local' %}selected{% endif %}>Local (bundled, on your own hardware)</option>
+        <option value="remote" {% if config.llm_mode == 'remote' %}selected{% endif %}>Remote (OpenAI-compatible endpoint)</option>
+      </select>
+    </label>
+    <label>Local model path (optional, relative to /data/models &mdash; leave blank for the bundled default)
+      <input type="text" name="llm_model_path" value="{{ config.llm_model_path }}">
+    </label>
+    <label>Remote base URL (e.g. https://api.openai.com/v1)
+      <input type="text" name="llm_remote_base_url" value="{{ config.llm_remote_base_url }}">
+    </label>
+    <label>Remote API key (leave blank to keep the current one)
+      <input type="password" name="llm_api_key" autocomplete="off">
+    </label>
+    <p class="hint">
+      Switching to a remote endpoint sends only pseudonymized data &mdash; device
+      <em>classes</em> like "iPhone" or "Apple HomePod / smart speaker", never real
+      IPs, MACs or hostnames. See DOCS.md for exactly what that means before turning it on.
+    </p>
+  </fieldset>
+
+  <fieldset id="unifi-fieldset">
+    <legend>UniFi integration (UDM only) &mdash; optional</legend>
+    <p class="hint">
+      Read-only by default. When enabled, this add-on reads devices, clients, firewall zones and
+      policies from your UDM's Network Application over its official, key-based Integration API
+      &mdash; never the classic username/password API &mdash; and uses them to enrich recommendations
+      and flag configuration issues like the one below. Nothing is ever written back to UniFi from
+      this add-on today, regardless of the apply-mode setting further down.
+    </p>
+    <label>
+      <input type="checkbox" name="unifi_enabled" id="unifi_enabled" {% if config.unifi_enabled %}checked{% endif %}>
+      Enable UniFi integration
+    </label>
+    <label>Console IP or hostname
+      <input type="text" name="unifi_host" id="unifi_host" placeholder="192.168.1.1" value="{{ config.unifi_host }}">
+    </label>
+    <label>API key {% if unifi_has_key %}<span class="hint">(one is already saved &mdash; leave blank to keep it)</span>{% endif %}
+      <input type="password" name="unifi_api_key" id="unifi_api_key" autocomplete="off">
+    </label>
+    {% if unifi_has_key %}
+    <label>
+      <input type="checkbox" name="unifi_api_key_clear" id="unifi_api_key_clear">
+      Remove the saved API key (on next Save, unless you also type a new one above)
+    </label>
+    {% endif %}
+    <label>
+      <input type="checkbox" name="unifi_verify_tls" id="unifi_verify_tls" {% if config.unifi_verify_tls %}checked{% endif %}>
+      Verify the console's TLS certificate (leave off for a local UDM's self-signed cert)
+    </label>
+
+    <button type="button" id="unifi-test-btn">Test connection</button>
+    <div id="unifi-test-result" class="unifi-test-result" aria-live="polite"></div>
+
+    {% if unifi_last_probe %}
+    <p class="hint">Last sync: {{ unifi_last_probe.checked_at | fmt_time }} &mdash;
+      {% if unifi_last_probe.any_capability_ok %}
+        <span class="chip chip-ok">working</span>
+      {% else %}
+        <span class="chip chip-warn">not working</span>
+      {% endif %}
+    </p>
+    <ul class="capability-list">
+      {% for c in unifi_last_probe.capabilities %}
+      <li class="{% if c.ok %}capability-ok{% else %}capability-fail{% endif %}">
+        <span class="capability-dot"></span> {{ c.label }} &mdash; <span class="hint">{{ c.detail }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <label>Firewall rule apply mode
+      <select name="unifi_apply_mode">
+        <option value="manual" {% if config.unifi_apply_mode == 'manual' %}selected{% endif %}>I'll write rules myself &mdash; the add-on only recommends</option>
+        <option value="automatic" {% if config.unifi_apply_mode == 'automatic' %}selected{% endif %}>Let the add-on write accepted rules to UniFi</option>
+      </select>
+    </label>
+    <p class="hint">
+      <strong>Not yet functional.</strong> This is reserved for a future stage — whichever option is
+      selected, this add-on never writes anything to UniFi today. Recommendations only ever reach
+      "accepted" in this add-on's own local bookkeeping.
+    </p>
+  </fieldset>
+
+  <button type="submit">Save</button>
+</form>
+
+</div>
 {% endblock %}

@@ -34,6 +34,12 @@ from typing import Any
 
 DEFAULT_TIMEOUT = 10.0
 
+# The Integration API's own default page size is 25; community clients that
+# support an explicit page size cap it at 200 — the largest page worth
+# asking for, cutting the number of round trips for a real home network's
+# client list down to one or two instead of three-plus at the default.
+_PAGE_LIMIT = 200
+
 _LOGGING_FIELD_CANDIDATES = ("loggingEnabled", "logging_enabled", "logging", "logEnabled")
 
 
@@ -152,6 +158,29 @@ class UnifiClientAPI:
             return payload
         return payload.get("data", [])
 
+    def _get_all(self, path: str) -> list[dict]:
+        """Every collection endpoint paginates — confirmed live: a site
+        with 71 clients returned only 25 before this existed, silently,
+        with nothing in the response shape suggesting truncation unless
+        you already knew to check `totalCount`. Defaults to `limit=25`;
+        this always asks for the max page size and keeps going until
+        `totalCount` says there's nothing left (falling back to "got a
+        full page, so there's probably more" if `totalCount` is ever
+        missing). Capped at a generous number of pages so a malformed
+        response can't spin forever instead of just returning what it has.
+        """
+        items: list[dict] = []
+        offset = 0
+        for _ in range(50):  # 50 * 200 = 10,000 items — far past any home network
+            payload = self._get(path, params={"offset": offset, "limit": _PAGE_LIMIT})
+            page = self._items(payload)
+            items.extend(page)
+            total = payload.get("totalCount") if isinstance(payload, dict) else None
+            offset += len(page)
+            if not page or (total is not None and offset >= total) or len(page) < _PAGE_LIMIT:
+                break
+        return items
+
     def get_info(self) -> dict:
         """Console/application version info — the cheapest possible
         reachability + auth check, used first by the capability probe."""
@@ -164,7 +193,7 @@ class UnifiClientAPI:
         ]
 
     def list_devices(self, site_id: str) -> list[UnifiDevice]:
-        items = self._items(self._get(f"/sites/{site_id}/devices"))
+        items = self._get_all(f"/sites/{site_id}/devices")
         devices = []
         for item in items:
             devices.append(
@@ -181,7 +210,7 @@ class UnifiClientAPI:
         return devices
 
     def list_clients(self, site_id: str) -> list[UnifiClient]:
-        items = self._items(self._get(f"/sites/{site_id}/clients"))
+        items = self._get_all(f"/sites/{site_id}/clients")
         clients = []
         for item in items:
             clients.append(
@@ -197,11 +226,11 @@ class UnifiClientAPI:
         return clients
 
     def list_firewall_zones(self, site_id: str) -> list[FirewallZone]:
-        items = self._items(self._get(f"/sites/{site_id}/firewall/zones"))
+        items = self._get_all(f"/sites/{site_id}/firewall/zones")
         return [FirewallZone(id=item.get("id", ""), name=item.get("name", ""), raw=item) for item in items]
 
     def list_firewall_policies(self, site_id: str) -> list[FirewallPolicy]:
-        items = self._items(self._get(f"/sites/{site_id}/firewall/policies"))
+        items = self._get_all(f"/sites/{site_id}/firewall/policies")
         policies = []
         for item in items:
             policies.append(

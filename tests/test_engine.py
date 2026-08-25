@@ -45,6 +45,7 @@ def _config(**overrides):
         unifi_host="",
         unifi_verify_tls=False,
         unifi_apply_mode="manual",
+        display_timezone_utc=False,
     )
     base.update(overrides)
     return Config(**base)
