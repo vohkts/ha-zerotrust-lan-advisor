@@ -92,6 +92,40 @@ def test_connect_migrates_an_existing_unifi_clients_table_missing_connected_at(t
     assert row[1] is None  # backfilled NULL, not a guessed value
 
 
+def test_connect_migrates_an_existing_unifi_clients_table_missing_client_type(tmp_path):
+    # The actual real-world sequence: a database that already has
+    # connected_at (from the prior migration) but predates client_type.
+    db_path = tmp_path / "zerotrust.db"
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute(
+        """CREATE TABLE unifi_clients (
+               id TEXT PRIMARY KEY,
+               name TEXT,
+               mac TEXT,
+               ip TEXT,
+               network_id TEXT,
+               connected_at TEXT,
+               raw_json TEXT NOT NULL,
+               fetched_at REAL NOT NULL
+           )"""
+    )
+    old_conn.execute(
+        "INSERT INTO unifi_clients (id, name, mac, ip, network_id, connected_at, raw_json, fetched_at) "
+        "VALUES ('c1', 'iPhone', 'aa:bb', '10.0.0.9', 'net-1', '2026-08-20T10:00:00Z', '{}', 1700000000)"
+    )
+    old_conn.commit()
+    old_conn.close()
+
+    conn = db.connect(db_path)  # must not raise
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(unifi_clients)")}
+    assert "client_type" in columns
+
+    row = conn.execute("SELECT connected_at, client_type FROM unifi_clients WHERE id = 'c1'").fetchone()
+    assert row[0] == "2026-08-20T10:00:00Z"  # the old row survived intact
+    assert row[1] is None
+
+
 def test_connect_is_idempotent_on_an_already_migrated_database(tmp_path):
     db_path = tmp_path / "zerotrust.db"
     db.connect(db_path)

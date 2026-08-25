@@ -119,20 +119,21 @@
 
 <section>
   <h3>Connected clients ({{ clients | length }})</h3>
-  <p class="hint">Connected since is the client's current (or most recent) session start — the closest
-     thing to "last seen" this API exposes. Clients not seen in over 3 days are hidden here automatically
-     {% if stale_client_count %}({{ stale_client_count }} hidden right now){% endif %}.</p>
+  <p class="hint">This is UniFi's own list of clients connected right now — nothing here is filtered.
+     "Connected since" is when the current session started, not "last seen": a wired device with a
+     long-running, healthy connection will show an old date here and is still very much online.</p>
   {% if not clients %}
     <p class="hint">None reported, or this key can't read them.</p>
   {% else %}
   <table class="status-table">
-    <thead><tr><th>Name</th><th>IP</th><th>MAC</th><th>Connected since</th></tr></thead>
+    <thead><tr><th>Name</th><th>IP</th><th>MAC</th><th>Type</th><th>Connected since</th></tr></thead>
     <tbody>
       {% for c in clients %}
       <tr>
         <td>{{ c.name or "—" }}</td>
         <td>{{ c.ip or "—" }}</td>
         <td>{{ c.mac or "—" }}</td>
+        <td>{{ c.client_type or "—" }}</td>
         <td>{{ c.connected_at | fmt_time if c.connected_at else "—" }}</td>
       </tr>
       {% endfor %}

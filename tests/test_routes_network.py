@@ -100,39 +100,30 @@ def test_load_devices(tmp_path):
     assert devices == [{"id": "d1", "name": "Switch", "model": "USW", "mac": "aa:bb", "ip": "10.0.0.5", "state": "ONLINE"}]
 
 
-def _insert_client(conn, id_, connected_at):
+def _insert_client(conn, id_, connected_at, client_type=None):
     conn.execute(
-        "INSERT INTO unifi_clients (id, name, mac, ip, network_id, connected_at, raw_json, fetched_at) "
-        "VALUES (?, ?, 'aa:bb', '10.0.0.9', 'net-1', ?, '{}', ?)",
-        (id_, f"Client{id_}", connected_at, NOW),
+        "INSERT INTO unifi_clients (id, name, mac, ip, network_id, connected_at, client_type, raw_json, fetched_at) "
+        "VALUES (?, ?, 'aa:bb', '10.0.0.9', 'net-1', ?, ?, '{}', ?)",
+        (id_, f"Client{id_}", connected_at, client_type, NOW),
     )
 
 
-def test_load_clients_hides_ones_stale_beyond_three_days(tmp_path):
+def test_load_clients_never_hides_anything_the_api_returned(tmp_path):
+    # Real bug, corrected live: the clients endpoint only ever returns
+    # currently-connected clients in the first place -- there is no
+    # separate "offline" set to filter. A long-running, healthy wired
+    # connection has an old connectedAt and is still online; hiding it as
+    # "stale" was actively wrong (real online devices disappeared).
     conn = db.connect(tmp_path / "zerotrust.db")
     from datetime import datetime, timezone
 
-    recent = datetime.fromtimestamp(NOW - 3600, tz=timezone.utc).isoformat().replace("+00:00", "Z")
-    stale = datetime.fromtimestamp(NOW - 10 * 86400, tz=timezone.utc).isoformat().replace("+00:00", "Z")
-    _insert_client(conn, "recent", recent)
-    _insert_client(conn, "stale", stale)
+    old = datetime.fromtimestamp(NOW - 30 * 86400, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    _insert_client(conn, "long-running", old, client_type="WIRED")
     conn.commit()
 
-    visible, stale_count = _load_clients(conn, now=NOW)
-    assert {c["id"] for c in visible} == {"recent"}
-    assert stale_count == 1
-
-
-def test_load_clients_keeps_clients_with_no_connected_at_at_all(tmp_path):
-    # Missing data is not evidence of staleness -- reject/hide only on
-    # positive evidence the client hasn't been seen recently.
-    conn = db.connect(tmp_path / "zerotrust.db")
-    _insert_client(conn, "unknown", None)
-    conn.commit()
-
-    visible, stale_count = _load_clients(conn, now=NOW)
-    assert {c["id"] for c in visible} == {"unknown"}
-    assert stale_count == 0
+    clients = _load_clients(conn)
+    assert {c["id"] for c in clients} == {"long-running"}
+    assert clients[0]["client_type"] == "WIRED"
 
 
 def test_load_clients_ignores_an_unparseable_connected_at(tmp_path):
@@ -140,6 +131,5 @@ def test_load_clients_ignores_an_unparseable_connected_at(tmp_path):
     _insert_client(conn, "weird", "not-a-real-timestamp")
     conn.commit()
 
-    visible, stale_count = _load_clients(conn, now=NOW)
-    assert {c["id"] for c in visible} == {"weird"}
-    assert stale_count == 0
+    clients = _load_clients(conn)
+    assert clients[0]["connected_at"] is None

@@ -99,6 +99,24 @@ def test_list_clients_falls_back_to_hostname_and_mac(monkeypatch):
     assert clients[0].mac == "cc:dd"
 
 
+def test_list_clients_parses_a_top_level_type_field(monkeypatch):
+    client = _client(monkeypatch, {"data": [{"id": "c1", "name": "Desktop", "type": "WIRED"}]})
+    clients = client.list_clients("default")
+    assert clients[0].client_type == "WIRED"
+
+
+def test_list_clients_falls_back_to_a_nested_access_type(monkeypatch):
+    client = _client(monkeypatch, {"data": [{"id": "c1", "name": "Phone", "access": {"type": "WIRELESS"}}]})
+    clients = client.list_clients("default")
+    assert clients[0].client_type == "WIRELESS"
+
+
+def test_list_clients_type_is_none_when_absent(monkeypatch):
+    client = _client(monkeypatch, {"data": [{"id": "c1", "name": "Unknown"}]})
+    clients = client.list_clients("default")
+    assert clients[0].client_type is None
+
+
 def test_list_networks_parses_vlan_and_subnet(monkeypatch):
     client = _client(
         monkeypatch,

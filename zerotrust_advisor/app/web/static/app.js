@@ -165,3 +165,60 @@ document.addEventListener("click", (event) => {
     panel.hidden = panel.dataset.tabPanel !== toggle.dataset.tab;
   }
 });
+
+// Client-side pagination for any data table (UniFi's policies list alone
+// can run into the hundreds). Everything is already rendered server-side
+// in one page load — no new route, no re-fetch — this just hides rows
+// outside the current page and adds Previous/Next controls after the
+// table. Applied automatically to every table with more than PAGE_SIZE
+// rows; a short table is left completely alone.
+const TABLE_PAGE_SIZE = 25;
+
+function paginateTable(table) {
+  const tbody = table.querySelector("tbody");
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+  if (rows.length <= TABLE_PAGE_SIZE) return;
+
+  const totalPages = Math.ceil(rows.length / TABLE_PAGE_SIZE);
+  const controls = document.createElement("div");
+  controls.className = "table-pagination";
+  table.insertAdjacentElement("afterend", controls);
+
+  let page = 0;
+
+  function render() {
+    const start = page * TABLE_PAGE_SIZE;
+    rows.forEach((row, i) => {
+      row.hidden = i < start || i >= start + TABLE_PAGE_SIZE;
+    });
+
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "Previous";
+    prev.disabled = page === 0;
+    prev.addEventListener("click", () => {
+      page -= 1;
+      render();
+    });
+
+    const status = document.createElement("span");
+    status.className = "hint";
+    status.textContent = `Page ${page + 1} of ${totalPages} (${rows.length} total)`;
+
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = "Next";
+    next.disabled = page === totalPages - 1;
+    next.addEventListener("click", () => {
+      page += 1;
+      render();
+    });
+
+    controls.replaceChildren(prev, status, next);
+  }
+
+  render();
+}
+
+document.querySelectorAll("table.status-table").forEach(paginateTable);

@@ -77,6 +77,7 @@ class UnifiClient:
     ip: str | None
     network_id: str | None
     connected_at: str | None  # ISO 8601 — when this client's current/most-recent session started
+    client_type: str | None  # "WIRED" | "WIRELESS" | "VPN" | "GUEST", per docs — not fully confirmed live
     raw: dict = field(default_factory=dict, repr=False)
 
 
@@ -239,6 +240,7 @@ class UnifiClientAPI:
                     ip=item.get("ipAddress") or item.get("ip"),
                     network_id=item.get("networkId") or item.get("uplinkDeviceId"),
                     connected_at=item.get("connectedAt"),
+                    client_type=_client_type(item),
                     raw=item,
                 )
             )
@@ -282,6 +284,21 @@ class UnifiClientAPI:
                 )
             )
         return policies
+
+
+def _client_type(item: dict) -> str | None:
+    """WIRED/WIRELESS/VPN/GUEST, per the API's filterable-properties docs
+    — those reference it as "access.type", which may mean a nested
+    `access: {type: ...}` object rather than a top-level field. Not
+    confirmed against a live response either way, so both shapes are
+    tried; a string in neither place leaves this None rather than guess."""
+    top_level = item.get("type")
+    if isinstance(top_level, str):
+        return top_level
+    access = item.get("access")
+    if isinstance(access, dict) and isinstance(access.get("type"), str):
+        return access["type"]
+    return None
 
 
 def _action_value(action_ref: Any) -> str | None:

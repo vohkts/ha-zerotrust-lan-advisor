@@ -9,7 +9,6 @@ whether or not this is configured.
 """
 from __future__ import annotations
 
-import time
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, render_template
@@ -18,8 +17,6 @@ from app.unifi import sync
 from app.web.db_context import get_db
 
 network_bp = Blueprint("network", __name__)
-
-_STALE_CLIENT_SECONDS = 3 * 86400
 
 
 def unifi_available(config, conn) -> bool:
@@ -80,26 +77,26 @@ def _parse_connected_at(value) -> float | None:
         return None
 
 
-def _load_clients(conn, now: float | None = None) -> tuple[list[dict], int]:
-    """Returns (visible clients, count hidden as stale). A client whose
-    connectedAt (its current/most-recent session start — the closest thing
-    to a "last seen" this API exposes) is more than _STALE_CLIENT_SECONDS
-    old is hidden from the main list rather than shown alongside genuinely
-    active ones, but counted so that's not silent."""
-    now = now if now is not None else time.time()
+def _load_clients(conn) -> list[dict]:
+    """The Integration API's clients endpoint is specifically "list
+    *connected* clients" — it already only returns clients that are online
+    right now, there is no separate offline/historical list mixed in. Hid
+    anything with an old connectedAt as "stale" before this, on the wrong
+    assumption that connectedAt meant "last seen" — corrected live: it's
+    when the *current* session started, so a wired desktop or printer with
+    a long-running, perfectly healthy connection has an old connectedAt
+    and is very much online. Show everything the API returns; connectedAt
+    is informational only now, not a filter."""
     rows = conn.execute(
-        "SELECT id, name, mac, ip, network_id, connected_at FROM unifi_clients ORDER BY name"
+        "SELECT id, name, mac, ip, network_id, connected_at, client_type FROM unifi_clients ORDER BY name"
     ).fetchall()
-
-    visible = []
-    stale_count = 0
-    for r in rows:
-        connected_at = _parse_connected_at(r[5])
-        if connected_at is not None and connected_at < now - _STALE_CLIENT_SECONDS:
-            stale_count += 1
-            continue
-        visible.append({"id": r[0], "name": r[1], "mac": r[2], "ip": r[3], "network_id": r[4], "connected_at": connected_at})
-    return visible, stale_count
+    return [
+        {
+            "id": r[0], "name": r[1], "mac": r[2], "ip": r[3], "network_id": r[4],
+            "connected_at": _parse_connected_at(r[5]), "client_type": r[6],
+        }
+        for r in rows
+    ]
 
 
 @network_bp.route("/network")
@@ -113,7 +110,6 @@ def network_page():
         return render_template("network.html", available=False, unifi_enabled=config.unifi_enabled, probe=probe)
 
     policies = _load_policies(conn)
-    clients, stale_client_count = _load_clients(conn)
     return render_template(
         "network.html",
         available=True,
@@ -123,8 +119,7 @@ def network_page():
         zones=_load_zones(conn),
         policies=policies,
         devices=_load_devices(conn),
-        clients=clients,
-        stale_client_count=stale_client_count,
+        clients=_load_clients(conn),
         logging_off_count=sum(1 for p in policies if p["enabled"] and p["logging_enabled"] is False),
     )
 

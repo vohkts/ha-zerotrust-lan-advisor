@@ -126,10 +126,14 @@ CREATE TABLE IF NOT EXISTS unifi_devices (
 );
 
 -- connected_at: the client's own connectedAt from the API (ISO 8601
--- string, stored as-is) -- when its current/most-recent session started.
--- For an offline client this doubles as a "last seen" proxy; for an
--- online one it's how long the current session has run. NULL on a
--- database that predates this column until the next sync backfills it.
+-- string, stored as-is) -- when its current session started. This
+-- endpoint only ever returns currently-connected clients in the first
+-- place (there's no separate offline list mixed in), so a long-running,
+-- healthy connection can have an old connected_at -- it is NOT a "last
+-- seen" signal and must never be used to decide a client is stale.
+-- client_type: "WIRED"/"WIRELESS"/"VPN"/"GUEST" per the API's docs.
+-- Both NULL on a database that predates these columns until the next sync
+-- backfills them.
 CREATE TABLE IF NOT EXISTS unifi_clients (
     id TEXT PRIMARY KEY,
     name TEXT,
@@ -137,6 +141,7 @@ CREATE TABLE IF NOT EXISTS unifi_clients (
     ip TEXT,
     network_id TEXT,
     connected_at TEXT,
+    client_type TEXT,
     raw_json TEXT NOT NULL,
     fetched_at REAL NOT NULL
 );
@@ -196,6 +201,7 @@ CREATE TABLE IF NOT EXISTS coverage_status (
 _COLUMN_MIGRATIONS = [
     ("recommendations", "category", "TEXT NOT NULL DEFAULT 'zero_trust'"),
     ("unifi_clients", "connected_at", "TEXT"),
+    ("unifi_clients", "client_type", "TEXT"),
 ]
 
 

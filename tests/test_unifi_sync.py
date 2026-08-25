@@ -22,7 +22,8 @@ class _FakeClient:
     def __init__(self):
         self.devices = [UnifiDevice(id="d1", name="Switch", model="USW", mac="aa", ip="10.0.0.5", state="ONLINE")]
         self.clients = [
-            UnifiClient(id="c1", name="iPhone", mac="bb", ip="10.0.0.9", network_id="net-1", connected_at="2026-08-20T10:00:00Z")
+            UnifiClient(id="c1", name="iPhone", mac="bb", ip="10.0.0.9", network_id="net-1",
+                        connected_at="2026-08-20T10:00:00Z", client_type="WIRELESS")
         ]
         self.networks = [UnifiNetwork(id="n1", name="IoT", vlan_id=10, subnet="192.168.10.0/24")]
         self.zones = [FirewallZone(id="z1", name="Internal")]
@@ -110,7 +111,7 @@ def test_refresh_feeds_unifi_client_names_into_identities_for_classification(tmp
     fake_client = _FakeClient()
     fake_client.clients[0] = UnifiClient(
         id="c1", name="Johns-iPhone", mac="aa:bb:cc:dd:ee:ff", ip="10.0.0.9",
-        network_id="net-1", connected_at="2026-08-20T10:00:00Z",
+        network_id="net-1", connected_at="2026-08-20T10:00:00Z", client_type="WIRELESS",
     )
     monkeypatch.setattr(sync, "_build_client", lambda config: fake_client)
 

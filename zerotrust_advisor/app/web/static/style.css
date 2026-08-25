@@ -168,6 +168,21 @@ table.status-table th {
 }
 table.status-table tbody tr:last-child td { border-bottom: none; }
 
+.table-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.6rem 0 1.25rem;
+}
+.table-pagination button {
+  background: var(--surface-alt);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+}
+.table-pagination button:hover { background: var(--border); }
+
 .chip {
   display: inline-block;
   padding: 0.1rem 0.55rem;

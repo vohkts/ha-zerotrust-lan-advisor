@@ -147,10 +147,10 @@ def refresh(conn: sqlite3.Connection, config: Config) -> ProbeReport | None:
         conn.execute("DELETE FROM unifi_clients")
         for c in client.list_clients(report.site_id):
             conn.execute(
-                "INSERT INTO unifi_clients (id, name, mac, ip, network_id, connected_at, raw_json, fetched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO unifi_clients (id, name, mac, ip, network_id, connected_at, client_type, raw_json, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (_scalar(c.id), _scalar(c.name), _scalar(c.mac), _scalar(c.ip), _scalar(c.network_id),
-                 _scalar(c.connected_at), json.dumps(c.raw), now),
+                 _scalar(c.connected_at), _scalar(c.client_type), json.dumps(c.raw), now),
             )
             _upsert_identity_from_unifi_client(conn, c, now)
 
