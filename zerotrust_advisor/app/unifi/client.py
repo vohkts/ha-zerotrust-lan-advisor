@@ -127,6 +127,17 @@ class UnifiClientAPI:
             raise UnifiError(f"{exc.code} {exc.reason} for {path}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise UnifiUnreachable(f"could not reach {self._base_url}: {exc}") from exc
+        except UnicodeEncodeError as exc:
+            # HTTP header values are latin-1 only. A real UniFi API key is
+            # plain ASCII; hitting this means the pasted value picked up a
+            # stray character from wherever it was copied (a smart-quote,
+            # an em dash from surrounding label text, etc.) — surfaced here
+            # as a bare "'latin-1' codec can't encode..." otherwise, which
+            # tells the user nothing about what to actually do about it.
+            raise UnifiError(
+                "the API key contains a character that isn't valid in an HTTP header (only plain ASCII "
+                "is allowed) — check you copied only the key itself, with nothing extra around it"
+            ) from exc
 
         try:
             return json.loads(body)

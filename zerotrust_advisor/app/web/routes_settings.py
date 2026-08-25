@@ -21,6 +21,19 @@ def _lines(raw: str) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
+def _api_key_error(key: str) -> str | None:
+    """A real UniFi API key is plain ASCII; anything else is virtually
+    always a copy-paste accident (a smart-quote, an em dash from
+    surrounding label text) rather than an intentional key character —
+    catching it here, before it's saved or sent anywhere, gives a clear
+    reason instead of a cryptic encoding failure showing up later against
+    a real network call (see client.py's UnicodeEncodeError handling,
+    kept as a backstop for whatever reaches it some other way)."""
+    if not key.isascii():
+        return "This doesn't look like a valid API key — it contains a character outside plain ASCII. Check you copied only the key itself, with nothing extra around it."
+    return None
+
+
 def _report_to_json(report) -> dict:
     return {
         "checked_at": report.checked_at,
@@ -42,6 +55,7 @@ def settings_page():
         saved=False,
         unifi_has_key=bool(read_secret("unifi_api_key")),
         unifi_last_probe=load_probe_report(conn),
+        unifi_api_key_error=None,
     )
 
 
@@ -54,8 +68,13 @@ def save_settings():
         write_secret("llm_api_key", api_key)
 
     unifi_api_key = form.get("unifi_api_key", "").strip()
+    unifi_api_key_error = None
     if unifi_api_key:
-        write_secret("unifi_api_key", unifi_api_key)
+        unifi_api_key_error = _api_key_error(unifi_api_key)
+        if unifi_api_key_error is None:
+            write_secret("unifi_api_key", unifi_api_key)
+        # Invalid: deliberately not saved — better to keep whatever worked
+        # before (or nothing) than to persist a key that can never work.
     elif "unifi_api_key_clear" in form:
         # Typing a new key always wins over clearing — if both happened
         # (shouldn't, the checkbox is meant to be used on its own) treat it
@@ -90,6 +109,7 @@ def save_settings():
         saved=True,
         unifi_has_key=bool(read_secret("unifi_api_key")),
         unifi_last_probe=load_probe_report(conn),
+        unifi_api_key_error=unifi_api_key_error,
     )
 
 
@@ -110,6 +130,10 @@ def test_unifi_connection():
     api_key = form.get("unifi_api_key", "").strip() or read_secret("unifi_api_key")
     if not api_key:
         return jsonify({"error": "missing_api_key"}), 400
+
+    key_error = _api_key_error(api_key)
+    if key_error:
+        return jsonify({"error": "invalid_api_key", "detail": key_error}), 400
 
     verify_tls = "unifi_verify_tls" in form
 

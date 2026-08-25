@@ -6,6 +6,9 @@
 <p class="chip chip-ok">Saved — every change here needs an add-on restart to actually take effect
    (Settings &rarr; Add-ons &rarr; this add-on &rarr; Restart).</p>
 {% endif %}
+{% if unifi_api_key_error %}
+<p class="chip chip-warn">UniFi API key not saved: {{ unifi_api_key_error }}</p>
+{% endif %}
 
 <form method="post" action="settings">
   <fieldset>

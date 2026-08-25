@@ -121,3 +121,17 @@ def test_connection_error_raises_unifi_unreachable(monkeypatch):
     client = UnifiClientAPI(host="192.168.1.1", api_key="test-key")
     with pytest.raises(UnifiUnreachable):
         client.get_info()
+
+
+def test_non_ascii_api_key_raises_a_readable_unifi_error_not_a_raw_encode_error(monkeypatch):
+    # Real bug, hit live: a header value must be latin-1-encodable. A key
+    # with a stray em dash (copy-paste picked up surrounding text) crashed
+    # with a bare "'latin-1' codec can't encode character..." — this is
+    # http.client's own header-encoding step, triggered inside urlopen().
+    def _boom(*a, **k):
+        raise UnicodeEncodeError("latin-1", "abc—xyz", 3, 4, "ordinal not in range(256)")
+
+    monkeypatch.setattr("app.unifi.client.urllib.request.urlopen", _boom)
+    client = UnifiClientAPI(host="192.168.1.1", api_key="abc—xyz")
+    with pytest.raises(UnifiError, match="plain ASCII"):
+        client.get_info()
