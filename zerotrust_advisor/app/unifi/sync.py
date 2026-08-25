@@ -20,6 +20,20 @@ from app.unifi.capability_probe import ProbeReport, probe
 from app.unifi.client import UnifiClientAPI
 
 
+def _scalar(value):
+    """Coerce anything that isn't already a SQLite-bindable primitive
+    (str/int/float/bool/None) into a compact JSON string, instead of
+    crashing the whole sync. Hit live: a field client.py expects to be a
+    plain string (e.g. a policy's action) came back from a real console as
+    a nested object — a shape the Integration API docs don't fully pin
+    down (see client.py's own note on this). The untouched original value
+    is always kept separately in raw_json regardless of what happens here.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return json.dumps(value)
+
+
 def _build_client(config: Config) -> UnifiClientAPI | None:
     if not config.unifi_enabled or not config.unifi_host:
         return None
@@ -89,7 +103,8 @@ def refresh(conn: sqlite3.Connection, config: Config) -> ProbeReport | None:
             conn.execute(
                 "INSERT INTO unifi_devices (id, name, model, mac, ip, state, raw_json, fetched_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (d.id, d.name, d.model, d.mac, d.ip, d.state, json.dumps(d.raw), now),
+                (_scalar(d.id), _scalar(d.name), _scalar(d.model), _scalar(d.mac), _scalar(d.ip),
+                 _scalar(d.state), json.dumps(d.raw), now),
             )
 
     if "clients" in ok_keys:
@@ -98,7 +113,8 @@ def refresh(conn: sqlite3.Connection, config: Config) -> ProbeReport | None:
             conn.execute(
                 "INSERT INTO unifi_clients (id, name, mac, ip, network_id, raw_json, fetched_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (c.id, c.name, c.mac, c.ip, c.network_id, json.dumps(c.raw), now),
+                (_scalar(c.id), _scalar(c.name), _scalar(c.mac), _scalar(c.ip), _scalar(c.network_id),
+                 json.dumps(c.raw), now),
             )
 
     if "firewall_zones" in ok_keys:
@@ -106,7 +122,7 @@ def refresh(conn: sqlite3.Connection, config: Config) -> ProbeReport | None:
         for z in client.list_firewall_zones(report.site_id):
             conn.execute(
                 "INSERT INTO unifi_zones (id, name, raw_json, fetched_at) VALUES (?, ?, ?, ?)",
-                (z.id, z.name, json.dumps(z.raw), now),
+                (_scalar(z.id), _scalar(z.name), json.dumps(z.raw), now),
             )
 
     if "firewall_policies" in ok_keys:
@@ -116,13 +132,13 @@ def refresh(conn: sqlite3.Connection, config: Config) -> ProbeReport | None:
                 "INSERT INTO unifi_policies (id, name, enabled, action, protocol, source_zone_id, "
                 "destination_zone_id, logging_enabled, raw_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    p.id,
-                    p.name,
+                    _scalar(p.id),
+                    _scalar(p.name),
                     int(p.enabled),
-                    p.action,
-                    p.protocol,
-                    p.source_zone_id,
-                    p.destination_zone_id,
+                    _scalar(p.action),
+                    _scalar(p.protocol),
+                    _scalar(p.source_zone_id),
+                    _scalar(p.destination_zone_id),
                     None if p.logging_enabled is None else int(p.logging_enabled),
                     json.dumps(p.raw),
                     now,

@@ -91,6 +91,28 @@ def test_refresh_populates_all_caches_on_full_success(tmp_path, monkeypatch):
     assert row[0] == 0  # False stored as 0, not NULL — the field was known
 
 
+def test_refresh_survives_an_unexpectedly_object_shaped_field(tmp_path, monkeypatch):
+    # Hit live: a real console returned a nested object for a policy's
+    # `action`, a field client.py expects to be a plain string -- crashed
+    # sqlite3 with "Error binding parameter 4: type 'dict' is not
+    # supported" before _scalar() existed. Any field could turn out this
+    # way; this is deliberately not specific to `action`.
+    monkeypatch.setattr(sync, "read_secret", lambda name: "fake-key")
+    fake_client = _FakeClient()
+    fake_client.policies[0] = FirewallPolicy(
+        id="p1", name="Odd rule", enabled=True, action={"type": "ALLOW"}, protocol="tcp",
+        source_zone_id="z1", destination_zone_id="z1", logging_enabled=None,
+    )
+    monkeypatch.setattr(sync, "_build_client", lambda config: fake_client)
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    report = sync.refresh(conn, _config())  # must not raise
+
+    assert report.site_id == "site-1"
+    row = conn.execute("SELECT action FROM unifi_policies WHERE id = 'p1'").fetchone()
+    assert row[0] == '{"type": "ALLOW"}'
+
+
 def test_store_and_load_probe_report_round_trips(tmp_path):
     conn = db.connect(tmp_path / "zerotrust.db")
     from app.unifi.capability_probe import CapabilityResult, ProbeReport
