@@ -9,15 +9,19 @@ whether or not this is configured.
 """
 from __future__ import annotations
 
+import json
+import time
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, render_template
+from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.sanitize.oui import lookup_vendor
 from app.unifi import sync
 from app.web.db_context import get_db
 
 network_bp = Blueprint("network", __name__)
+
+_POLICY_EVENT_WINDOW_SECONDS = 7 * 86400
 
 
 def unifi_available(config, conn) -> bool:
@@ -130,6 +134,67 @@ def network_page():
         devices=_load_devices(conn),
         clients=_load_clients(conn),
         logging_off_count=sum(1 for p in policies if p["enabled"] and p["logging_enabled"] is False),
+    )
+
+
+def _like_pattern(text: str) -> str:
+    """Escapes SQL LIKE wildcards (%, _) in a policy name before using it
+    as a substring pattern -- an admin-chosen name containing either
+    character would otherwise be silently (mis)interpreted as a wildcard
+    rather than a literal match."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+@network_bp.route("/network/policy-detail")
+def policy_detail():
+    """On-demand only -- computed per policy on click, not folded into the
+    main /network render, which would mean one extra query per policy on
+    every page load for something most policies are never expanded to see.
+
+    event_count is best-effort: there's no field anywhere in the
+    Integration API tying an observed firewall log line to the specific
+    policy that matched it, so this matches by whether the policy's own
+    name appears in the log's auto-generated rule name -- true whenever
+    the console's rule-naming convention includes it (common, not
+    guaranteed), and honestly labeled as approximate in the response
+    rather than asserted as exact."""
+    policy_id = request.args.get("id", "").strip()
+    if not policy_id:
+        return jsonify({"error": "missing_id"}), 400
+
+    conn = get_db()
+    row = conn.execute(
+        """SELECT p.id, p.name, p.enabled, p.action, p.protocol, z1.name, z2.name, p.logging_enabled, p.raw_json
+           FROM unifi_policies p
+           LEFT JOIN unifi_zones z1 ON z1.id = p.source_zone_id
+           LEFT JOIN unifi_zones z2 ON z2.id = p.destination_zone_id
+           WHERE p.id = ?""",
+        (policy_id,),
+    ).fetchone()
+    if row is None:
+        return jsonify({"error": "not_found"}), 404
+
+    since = time.time() - _POLICY_EVENT_WINDOW_SECONDS
+    event_count = conn.execute(
+        "SELECT COUNT(*) FROM events_firewall WHERE ts >= ? AND rule_prefix LIKE ? ESCAPE '\\'",
+        (since, _like_pattern(row[1])),
+    ).fetchone()[0]
+
+    return jsonify(
+        {
+            "id": row[0],
+            "name": row[1],
+            "enabled": bool(row[2]),
+            "action": row[3],
+            "protocol": row[4],
+            "source_zone": row[5] or "unknown",
+            "destination_zone": row[6] or "unknown",
+            "logging_enabled": None if row[7] is None else bool(row[7]),
+            "raw": json.loads(row[8]),
+            "event_count": event_count,
+            "event_count_window_days": _POLICY_EVENT_WINDOW_SECONDS // 86400,
+        }
     )
 
 

@@ -7,7 +7,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"
 from app import db
 from app.unifi import sync
 from app.unifi.capability_probe import CapabilityResult, ProbeReport
-from app.web.routes_network import _load_clients, _load_devices, _load_networks, _load_policies, _load_zones, unifi_available
+from app.web.routes_network import (
+    _like_pattern,
+    _load_clients,
+    _load_devices,
+    _load_networks,
+    _load_policies,
+    _load_zones,
+    unifi_available,
+)
 
 NOW = time.time()
 
@@ -168,3 +176,91 @@ def test_load_networks_includes_client_count(tmp_path):
     networks = _load_networks(conn)
     by_name = {n["name"]: n["client_count"] for n in networks}
     assert by_name == {"IoT": 2, "Guest": 0}
+
+
+def test_like_pattern_escapes_percent_and_underscore():
+    assert _like_pattern("Allow_All") == "%Allow\\_All%"
+    assert _like_pattern("100%") == "%100\\%%"
+    assert _like_pattern("Plain") == "%Plain%"
+
+
+def _client(tmp_path, monkeypatch):
+    import app.config as config_module
+    from app.web.server import create_app
+
+    monkeypatch.setattr(config_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config_module, "OPTIONS_PATH", tmp_path / "options.json")
+    monkeypatch.setattr(config_module, "SECRETS_DIR", tmp_path / "secrets")
+    app = create_app()
+    app.testing = True
+    return app.test_client()
+
+
+def test_policy_detail_requires_id(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    resp = client.get("/network/policy-detail")
+    assert resp.status_code == 400
+
+
+def test_policy_detail_404s_for_an_unknown_id(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    resp = client.get("/network/policy-detail?id=missing")
+    assert resp.status_code == 404
+
+
+def test_policy_detail_returns_raw_and_best_effort_event_count(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = db.connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            "INSERT INTO unifi_zones (id, name, raw_json, fetched_at) VALUES ('z1', 'Internal', '{}', ?)", (NOW,),
+        )
+        conn.execute(
+            """INSERT INTO unifi_policies
+               (id, name, enabled, action, protocol, source_zone_id, destination_zone_id, logging_enabled,
+                raw_json, fetched_at)
+               VALUES ('p1', 'Allow AirPlay', 1, 'ALLOW', 'tcp', 'z1', 'z1', 1, '{"foo": "bar"}', ?)""",
+            (NOW,),
+        )
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, rule_prefix, action, received_at) "
+            "VALUES (?, '192.168.10.5', '192.168.10.6', 6, 'LAN_IN-Allow AirPlay-2147483647', 'ALLOW', ?)",
+            (NOW, NOW),
+        )
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, rule_prefix, action, received_at) "
+            "VALUES (?, '192.168.10.5', '192.168.10.6', 6, 'LAN_IN-Unrelated Rule-1', 'ALLOW', ?)",
+            (NOW, NOW),
+        )
+        conn.commit()
+
+    body = client.get("/network/policy-detail?id=p1").get_json()
+    assert body["name"] == "Allow AirPlay"
+    assert body["source_zone"] == "Internal"
+    assert body["raw"] == {"foo": "bar"}
+    assert body["event_count"] == 1  # only the matching rule_prefix, not the unrelated one
+
+
+def test_policy_detail_event_count_ignores_underscore_as_a_wildcard(tmp_path, monkeypatch):
+    # A policy literally named "Allow_All" must not match a log line for
+    # some unrelated "AllowXAll" rule just because '_' is a SQL LIKE
+    # single-character wildcard when left unescaped.
+    client = _client(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = db.connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            """INSERT INTO unifi_policies
+               (id, name, enabled, action, protocol, source_zone_id, destination_zone_id, logging_enabled,
+                raw_json, fetched_at)
+               VALUES ('p1', 'Allow_All', 1, 'ALLOW', 'tcp', NULL, NULL, 1, '{}', ?)""",
+            (NOW,),
+        )
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, rule_prefix, action, received_at) "
+            "VALUES (?, '192.168.10.5', '192.168.10.6', 6, 'LAN_IN-AllowXAll-1', 'ALLOW', ?)",
+            (NOW, NOW),
+        )
+        conn.commit()
+
+    body = client.get("/network/policy-detail?id=p1").get_json()
+    assert body["event_count"] == 0

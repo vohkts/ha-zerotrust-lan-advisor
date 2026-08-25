@@ -73,13 +73,16 @@
   {% if not policies %}
     <p class="hint">None reported, or this key can't read them.</p>
   {% else %}
+  <p class="hint">Click a policy to see its full configuration and roughly how many events it's matched in the
+     last 7 days (best-effort — matched by whether the policy's name appears in the log's own rule name, which
+     isn't guaranteed depending on your console's rule-naming).</p>
   <input type="search" class="table-filter" data-filter-for="policies-table"
          placeholder="Filter by name, zone, action, protocol…">
   <table class="status-table" id="policies-table">
     <thead><tr><th>Policy</th><th>State</th><th>Action</th><th>Zones</th><th>Protocol</th><th>Logging</th></tr></thead>
     <tbody>
       {% for p in policies %}
-      <tr>
+      <tr class="expandable-row" data-policy-id="{{ p.id }}">
         <td>{{ p.name }}</td>
         <td>{% if p.enabled %}<span class="chip chip-ok">enabled</span>{% else %}<span class="hint">disabled</span>{% endif %}</td>
         <td>{{ p.action or "—" }}</td>

@@ -197,12 +197,12 @@ function setupTable(table) {
   let page = 0;
 
   function render() {
-    // Any expand-on-click detail row (see the Hosts table) is inserted
-    // into the DOM after this table's row snapshot was taken, so it isn't
-    // one of allRows and paging away from it would leave it orphaned and
-    // visible under whatever page happens to be showing next — simplest
-    // fix is to always collapse it on any page change.
-    for (const row of tbody.querySelectorAll(".host-detail-row")) row.remove();
+    // Any expand-on-click detail row (Hosts, Firewall policies) is
+    // inserted into the DOM after this table's row snapshot was taken, so
+    // it isn't one of allRows and paging away from it would leave it
+    // orphaned and visible under whatever page happens to be showing next
+    // — simplest fix is to always collapse it on any page change.
+    for (const row of tbody.querySelectorAll(".host-detail-row, .policy-detail-row")) row.remove();
 
     const matching = query ? allRows.filter((row) => row.textContent.toLowerCase().includes(query)) : allRows;
     const totalPages = Math.max(1, Math.ceil(matching.length / TABLE_PAGE_SIZE));
@@ -513,3 +513,58 @@ function pollForGuess(ip, guessBlock, statusEl) {
     }
   }, 4000);
 }
+
+// Firewall policies table: click a row for its full configuration and a
+// best-effort recent-event count (see routes_network.py). Same
+// expand/collapse shape as the Hosts table, plain DOM calls only.
+document.addEventListener("click", async (event) => {
+  const row = event.target.closest("tr[data-policy-id]");
+  if (!row) return;
+
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains("policy-detail-row")) {
+    existing.remove();
+    return;
+  }
+  for (const open of row.closest("tbody").querySelectorAll(".policy-detail-row")) open.remove();
+
+  const id = row.dataset.policyId;
+  const detailRow = document.createElement("tr");
+  detailRow.className = "policy-detail-row";
+  const detailCell = document.createElement("td");
+  detailCell.colSpan = row.children.length;
+  detailCell.textContent = "Loading…";
+  detailRow.appendChild(detailCell);
+  row.after(detailRow);
+
+  let data;
+  try {
+    data = await (await fetch(`network/policy-detail?id=${encodeURIComponent(id)}`)).json();
+  } catch (err) {
+    detailCell.textContent = `Failed to load: ${err.message}`;
+    return;
+  }
+  if (data.error) {
+    detailCell.textContent = `Could not load this policy (${data.error}).`;
+    return;
+  }
+
+  detailCell.replaceChildren();
+  const root = document.createElement("div");
+  root.className = "host-detail";
+
+  const summary = document.createElement("p");
+  summary.className = "hint";
+  summary.textContent =
+    `~${data.event_count} matched event(s) in the last ${data.event_count_window_days} days ` +
+    "(best-effort — see the note above the table).";
+  root.appendChild(summary);
+
+  root.appendChild(
+    labeledList("Configuration", Object.entries(data.raw), (li, [key, value]) => {
+      li.textContent = `${key}: ${JSON.stringify(value)}`;
+    })
+  );
+
+  detailCell.appendChild(root);
+});

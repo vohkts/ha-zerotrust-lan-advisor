@@ -414,7 +414,7 @@ tr.live-row-new { animation: live-row-flash 1.2s ease-out; }
 
 tr.expandable-row { cursor: pointer; }
 tr.expandable-row:hover { background: var(--surface-alt); }
-tr.host-detail-row > td {
+tr.host-detail-row > td, tr.policy-detail-row > td {
   background: var(--surface-alt);
   padding: 1rem 1.2rem;
 }
