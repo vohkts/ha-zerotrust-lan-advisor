@@ -209,7 +209,7 @@ class UnifiClientAPI:
                     id=item.get("id", ""),
                     name=item.get("name", ""),
                     enabled=bool(item.get("enabled", True)),
-                    action=item.get("action"),
+                    action=_action_value(item.get("action")),
                     protocol=item.get("protocol"),
                     source_zone_id=_zone_id(item.get("source")),
                     destination_zone_id=_zone_id(item.get("destination")),
@@ -218,6 +218,22 @@ class UnifiClientAPI:
                 )
             )
         return policies
+
+
+def _action_value(action_ref: Any) -> str | None:
+    """Confirmed live against a real console 2026-08-25: a policy's action
+    is an object (`{"type": "ALLOW", "allowReturnTraffic": false}`), not
+    the plain string this code originally assumed — the crash that
+    surfaced this is exactly why sync.py also coerces defensively at
+    storage time. Tolerate a bare string too, in case another API version
+    ever returns one directly."""
+    if action_ref is None:
+        return None
+    if isinstance(action_ref, str):
+        return action_ref
+    if isinstance(action_ref, dict):
+        return action_ref.get("type")
+    return None
 
 
 def _zone_id(zone_ref: Any) -> str | None:

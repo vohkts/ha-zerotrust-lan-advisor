@@ -103,6 +103,26 @@ def test_firewall_policy_zone_refs_handle_string_and_object_shapes(monkeypatch):
     assert policies[1].destination_zone_id is None
 
 
+def test_firewall_policy_action_handles_object_and_string_shapes(monkeypatch):
+    # {"type": "ALLOW", "allowReturnTraffic": false} is the real shape on a
+    # live console, confirmed 2026-08-25 — the plain-string assumption this
+    # code originally made crashed sync.py trying to store the whole dict.
+    client = _client(
+        monkeypatch,
+        {
+            "data": [
+                {"id": "p1", "name": "A", "action": {"type": "ALLOW", "allowReturnTraffic": False}},
+                {"id": "p2", "name": "B", "action": "BLOCK"},
+                {"id": "p3", "name": "C", "action": None},
+            ]
+        },
+    )
+    policies = client.list_firewall_policies("default")
+    assert policies[0].action == "ALLOW"
+    assert policies[1].action == "BLOCK"
+    assert policies[2].action is None
+
+
 def test_http_error_raises_unifi_error(monkeypatch):
     def _boom(*a, **k):
         raise urllib.error.HTTPError("url", 403, "Forbidden", {}, None)
