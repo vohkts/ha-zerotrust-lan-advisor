@@ -76,6 +76,44 @@ def test_network_rows_hides_single_host_prefix_guesses_as_noise():
     assert hidden == 1
 
 
+def test_network_rows_hides_a_multi_host_public_ip_cluster_as_noise():
+    # The original filter only caught a *single*-host public grouping --
+    # missed exactly this case (several public IPs sharing a /24, e.g.
+    # behind the same CDN), reported live as "still 100+ entries with
+    # UniFi active." None of them are a network of the user's at all.
+    noisy_map = NetworkMap(
+        networks=[
+            *NETWORK_MAP.networks,
+            DiscoveredNetwork(
+                key="8.8.8.0/24", kind="prefix", hosts=frozenset({"8.8.8.4", "8.8.8.9"}),
+                event_count=4, first_seen=100, last_seen=100, guessed_range="8.8.8.0/24",
+            ),
+        ],
+        ip_to_key={**NETWORK_MAP.ip_to_key, "8.8.8.4": "8.8.8.0/24", "8.8.8.9": "8.8.8.0/24"},
+    )
+    rows, hidden = _build_network_rows(noisy_map, {})
+    assert {r["key"] for r in rows} == {"br1", "br2"}
+    assert hidden == 1
+
+
+def test_network_rows_hides_a_public_ip_cluster_even_when_interface_confirmed():
+    # A WAN-facing interface can log IN=/OUT= too -- interface confirmation
+    # is about grouping confidence, not about whether the hosts are local.
+    noisy_map = NetworkMap(
+        networks=[
+            *NETWORK_MAP.networks,
+            DiscoveredNetwork(
+                key="wan0", kind="interface", hosts=frozenset({"8.8.8.4", "8.8.8.9"}),
+                event_count=4, first_seen=100, last_seen=100, guessed_range="8.8.8.0/24",
+            ),
+        ],
+        ip_to_key={**NETWORK_MAP.ip_to_key, "8.8.8.4": "wan0", "8.8.8.9": "wan0"},
+    )
+    rows, hidden = _build_network_rows(noisy_map, {})
+    assert {r["key"] for r in rows} == {"br1", "br2"}
+    assert hidden == 1
+
+
 def test_network_rows_hides_a_guess_once_unifi_confirms_that_range():
     unifi_networks = [UnifiNetworkInfo(name="IoT VLAN", network=ipaddress.ip_network("192.168.10.0/24"))]
     rows, hidden = _build_network_rows(NETWORK_MAP, {}, unifi_networks)

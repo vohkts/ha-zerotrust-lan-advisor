@@ -110,21 +110,38 @@ def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_nam
 
 
 def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str], unifi_networks=()) -> tuple[list[dict], int]:
-    """Returns (rows, count hidden as noise). Two kinds of noise filtered
-    out, not just capped: a single-host "prefix" grouping is almost always
-    a random external IP that happened to get its own /24 guess, not a
-    real local network (interface-confirmed groupings are real evidence
-    regardless of host count, so those are never filtered); and once
-    UniFi confirms a network's real name for a range, the guessed entry
-    for that same range is redundant — resolve_label() already prefers
-    the real name everywhere a host/flow in that range gets labeled."""
+    """Returns (rows, count hidden as noise). Three kinds of noise filtered
+    out, not just capped:
+
+    1. Entirely public-IP groupings aren't a network of yours at all — a
+       cluster of internet destinations that happened to share a /24 guess
+       (very common: several servers behind the same CDN or cloud range),
+       not a real local segment. The original version of this filter only
+       caught a *single*-host public grouping, which missed exactly this
+       case — still showing 100+ entries with UniFi active, reported live.
+       RFC1918 ranges don't overlap with public ones, so checking any one
+       host is enough to classify the whole grouping.
+    2. A single-host "prefix" grouping, even a private one, is weak enough
+       evidence it's not worth showing as a "network" on its own.
+    3. Once UniFi confirms a network's real name for a range, the guessed
+       entry for that range is redundant — resolve_label() already prefers
+       the real name everywhere a host/flow in that range gets labeled.
+
+    Interface-confirmed groupings skip check 2 (real evidence regardless
+    of host count) but not check 1 — a WAN-facing interface can log
+    IN=/OUT= just as a LAN one does, and its hosts are still public IPs,
+    not a network of yours."""
     rows = []
     hidden = 0
     for net in network_map.networks:  # already sorted by event volume, descending
+        sample_ip = next(iter(net.hosts), None)
+        if sample_ip is not None and not is_private_ip(sample_ip):
+            hidden += 1
+            continue
         if net.kind == "prefix" and len(net.hosts) <= 1:
             hidden += 1
             continue
-        if unifi_networks and net.hosts and unifi_network_for_ip(next(iter(net.hosts)), unifi_networks):
+        if unifi_networks and sample_ip is not None and unifi_network_for_ip(sample_ip, unifi_networks):
             hidden += 1
             continue
         rows.append(
