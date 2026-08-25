@@ -150,9 +150,12 @@ add-on that writes to UniFi.
 
 All settings are edited from this add-on's own Settings screen (which also
 appears identically in Home Assistant's normal Add-on Configuration tab —
-they're the same underlying store). **Every change needs an add-on restart
-to actually take effect** — Supervisor updates the stored config
-immediately, but the already-running process doesn't pick it up live.
+they're the same underlying store). Saving from this screen restarts the
+add-on automatically to apply the change — Supervisor stores the new
+config immediately, but the already-running process doesn't pick it up
+live otherwise, so a restart is genuinely needed; this triggers it for
+you rather than asking you to do it manually. Expect a few seconds of
+downtime for the receivers/web UI each time you save.
 
 | Setting | What it does |
 |---|---|

@@ -5,6 +5,8 @@ ever touch /data/secrets, never the options store, never a log line.
 """
 from __future__ import annotations
 
+import logging
+
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.config import load_config, read_secret, remove_secret, write_secret
@@ -12,7 +14,9 @@ from app.unifi.capability_probe import probe
 from app.unifi.client import UnifiClientAPI, UnifiError, UnifiUnreachable
 from app.unifi.sync import load_probe_report
 from app.web.db_context import get_db
-from app.web.supervisor import update_options
+from app.web.supervisor import restart_self, update_options
+
+logger = logging.getLogger(__name__)
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -53,6 +57,7 @@ def settings_page():
         "settings.html",
         config=current_app.config["ZTA_CONFIG"],
         saved=False,
+        restarting=False,
         unifi_has_key=bool(read_secret("unifi_api_key")),
         unifi_last_probe=load_probe_report(conn),
         unifi_api_key_error=None,
@@ -102,11 +107,24 @@ def save_settings():
     )
 
     current_app.config["ZTA_CONFIG"] = load_config()
+
+    restarting = True
+    try:
+        restart_self()
+    except Exception:
+        # Saved options are real either way — Supervisor has them for the
+        # next start regardless. Only the "takes effect immediately"
+        # convenience is at risk here, so a hiccup calling the restart API
+        # shouldn't turn a successful save into an error response.
+        logger.exception("failed to trigger self-restart after settings save")
+        restarting = False
+
     conn = get_db()
     return render_template(
         "settings.html",
         config=current_app.config["ZTA_CONFIG"],
         saved=True,
+        restarting=restarting,
         unifi_has_key=bool(read_secret("unifi_api_key")),
         unifi_last_probe=load_probe_report(conn),
         unifi_api_key_error=unifi_api_key_error,
