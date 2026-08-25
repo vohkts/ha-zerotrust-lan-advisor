@@ -292,7 +292,7 @@ if (liveToggleBtn) {
 
   function addRow(ev) {
     const tr = document.createElement("tr");
-    tr.className = "live-row-new";
+    tr.className = `live-row-new ${ev.blocked ? "live-row-blocked" : "live-row-allowed"}`;
 
     const port = ev.dst_port != null ? ev.dst_port : "any";
     const portCell = `${ev.proto}/${port}` + (ev.port_hint ? ` — ${ev.port_hint}` : "");

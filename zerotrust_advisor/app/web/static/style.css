@@ -258,6 +258,21 @@ button {
 button:hover { filter: brightness(1.08); }
 button:disabled { opacity: 0.5; cursor: default; filter: none; }
 
+/* Lower-emphasis actions (e.g. Live View's Clear, sitting next to the
+   primary Start/Stop toggle) shouldn't compete with the main action on
+   the page for attention. */
+button.btn-secondary {
+  background: var(--surface-alt);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+button.btn-secondary:hover { background: var(--border); filter: none; }
+
+button:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 fieldset {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -407,6 +422,11 @@ tr.live-row-new { animation: live-row-flash 1.2s ease-out; }
   0% { background: color-mix(in srgb, var(--accent) 20%, transparent); }
   100% { background: transparent; }
 }
+/* A subtle full-row tint, not just the status chip, so a blocked event
+   scans at a glance in a fast-moving live feed. */
+tr.live-row-blocked { background: color-mix(in srgb, var(--danger) 6%, transparent); }
+tr.live-row-blocked:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+tr.live-row-allowed:hover { background: var(--surface-alt); }
 #live-table-wrap {
   max-height: 70vh;
   overflow-y: auto;
