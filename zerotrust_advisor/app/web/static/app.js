@@ -273,17 +273,25 @@ function setupCardList(container) {
   container.insertAdjacentElement("afterend", controls);
 
   let query = "";
+  let statusFilter = "";
   let page = 0;
 
+  function matchesFilters(item) {
+    if (statusFilter && item.dataset.status !== statusFilter) return false;
+    if (query && !item.textContent.toLowerCase().includes(query)) return false;
+    return true;
+  }
+
   function render() {
-    const matching = query ? allItems.filter((item) => item.textContent.toLowerCase().includes(query)) : allItems;
+    const matching = allItems.filter(matchesFilters);
     const totalPages = Math.max(1, Math.ceil(matching.length / TABLE_PAGE_SIZE));
     if (page >= totalPages) page = 0;
     const start = page * TABLE_PAGE_SIZE;
     const visible = new Set(matching.slice(start, start + TABLE_PAGE_SIZE));
     for (const item of allItems) item.hidden = !visible.has(item);
 
-    const needsControls = matching.length > TABLE_PAGE_SIZE || (query && matching.length !== allItems.length);
+    const filtered = query || statusFilter;
+    const needsControls = matching.length > TABLE_PAGE_SIZE || (filtered && matching.length !== allItems.length);
     if (!needsControls) {
       controls.replaceChildren();
       return;
@@ -300,7 +308,7 @@ function setupCardList(container) {
 
     const status = document.createElement("span");
     status.className = "hint";
-    status.textContent = query
+    status.textContent = filtered
       ? `Page ${page + 1} of ${totalPages} (${matching.length} of ${allItems.length} match)`
       : `Page ${page + 1} of ${totalPages} (${allItems.length} total)`;
 
@@ -322,6 +330,12 @@ function setupCardList(container) {
     render();
   };
 
+  container._ztaSetStatusFilter = (s) => {
+    statusFilter = s;
+    page = 0;
+    render();
+  };
+
   render();
 }
 
@@ -332,6 +346,11 @@ function wireFilterInputs(root) {
     const target = document.getElementById(input.dataset.filterFor);
     if (!target || !target._ztaSetFilter) return;
     input.addEventListener("input", () => target._ztaSetFilter(input.value));
+  });
+  root.querySelectorAll("[data-status-filter-for]").forEach((select) => {
+    const target = document.getElementById(select.dataset.statusFilterFor);
+    if (!target || !target._ztaSetStatusFilter) return;
+    select.addEventListener("change", () => target._ztaSetStatusFilter(select.value));
   });
 }
 

@@ -183,7 +183,7 @@ table.status-table tbody tr:last-child td { border-bottom: none; }
 }
 .table-pagination button:hover { background: var(--border); }
 
-input.table-filter {
+input.table-filter, select.table-filter {
   display: block;
   width: 100%;
   max-width: 320px;
@@ -196,6 +196,9 @@ input.table-filter {
   font-family: inherit;
   font-size: 0.85rem;
 }
+.filter-row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+.filter-row input.table-filter { flex: 1 1 260px; }
+.filter-row select.table-filter { flex: 0 0 auto; width: auto; max-width: none; }
 
 .chip {
   display: inline-block;

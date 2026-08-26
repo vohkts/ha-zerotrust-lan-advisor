@@ -288,6 +288,50 @@ def test_identity_for_ip_prefers_a_stored_non_unclassified_class(tmp_path, monke
     assert result.confidence == "medium"
 
 
+def test_pattern_already_covered_by_a_narrow_real_rule_is_skipped(tmp_path, monkeypatch):
+    # "Recommendations should always consider existing ruleset. Not the
+    # allow all of course but those that have been implemented already."
+    import json as jsonlib
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    _seed_recurring_pattern(conn)  # dst_port=7000
+    conn.execute(
+        "INSERT INTO unifi_policies (id, name, enabled, action, protocol, raw_json, fetched_at) "
+        "VALUES ('p1', 'Already allowed', 1, 'ALLOW', 'tcp', ?, ?)",
+        (
+            jsonlib.dumps(
+                {
+                    "action": {"type": "ALLOW"},
+                    "destination": {"trafficFilter": {"portFilter": {"items": [{"type": "PORT_NUMBER", "value": 7000}]}}},
+                }
+            ),
+            time.time(),
+        ),
+    )
+    conn.commit()
+    monkeypatch.setattr(engine, "chat_completion", lambda *a, **k: json.dumps(FAKE_RECOMMENDATION))
+
+    result = engine.run_analysis_pass(conn, _config())
+    assert result.zero_trust_written == 0
+
+
+def test_pattern_only_covered_by_a_broad_allow_all_rule_is_not_skipped(tmp_path, monkeypatch):
+    import json as jsonlib
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    _seed_recurring_pattern(conn)  # dst_port=7000
+    conn.execute(
+        "INSERT INTO unifi_policies (id, name, enabled, action, protocol, raw_json, fetched_at) "
+        "VALUES ('p1', 'Allow everything', 1, 'ALLOW', 'any', ?, ?)",
+        (jsonlib.dumps({"action": {"type": "ALLOW"}, "destination": {"trafficFilter": {}}}), time.time()),
+    )
+    conn.commit()
+    monkeypatch.setattr(engine, "chat_completion", lambda *a, **k: json.dumps(FAKE_RECOMMENDATION))
+
+    result = engine.run_analysis_pass(conn, _config())
+    assert result.zero_trust_written == 1
+
+
 def test_llm_failure_is_skipped_not_raised(tmp_path, monkeypatch):
     from app.llm.client import LLMError
 

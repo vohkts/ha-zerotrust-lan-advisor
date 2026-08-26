@@ -21,6 +21,7 @@ import threading
 
 from flask import Blueprint, current_app, jsonify, render_template
 
+from app.analysis.rule_match import find_covering_policy, load_parsed_policies
 from app.analysis.runner import is_running, run_analysis_now
 from app.db import connect
 from app.web.db_context import get_db
@@ -30,23 +31,45 @@ logger = logging.getLogger(__name__)
 recommendations_bp = Blueprint("recommendations", __name__)
 
 
-def _load_items(conn, category: str):
+def _implemented_status(pattern_signature: str, real_policies: list) -> bool | None:
+    """Whether a matching narrow, enabled ALLOW rule now exists for this
+    recommendation's port -- see rule_match.py. None (shown as "unknown")
+    when the pattern has no specific port to check, not when no rule was
+    found; "no rule found" is a real False, not an unknown."""
+    parts = pattern_signature.split("|")
+    if len(parts) != 6:
+        return None
+    try:
+        port = int(parts[5])
+    except ValueError:
+        return None
+    return find_covering_policy(real_policies, port) is not None
+
+
+def _load_items(conn, category: str, real_policies: list | None = None):
     rows = conn.execute(
-        """SELECT id, created_at, status, pattern_summary_text, structured_json, confidence
+        """SELECT id, created_at, status, pattern_summary_text, structured_json, confidence, pattern_signature
            FROM recommendations WHERE category = ? ORDER BY created_at DESC""",
         (category,),
     ).fetchall()
-    return [
-        {
+    items = []
+    for row in rows:
+        item = {
             "id": row[0],
             "created_at": row[1],
             "status": row[2],
             "summary": row[3],
             "structured": json.loads(row[4]),
             "confidence": row[5],
+            "implemented": None,
         }
-        for row in rows
-    ]
+        # Only worth checking for recommendations the user has actually
+        # accepted -- a pending or dismissed one being "implemented" or
+        # not isn't a meaningful question yet.
+        if real_policies is not None and item["status"] == "accepted":
+            item["implemented"] = _implemented_status(row[6], real_policies)
+        items.append(item)
+    return items
 
 
 @recommendations_bp.route("/recommendations")
@@ -57,9 +80,10 @@ def list_recommendations():
     # (one segment) so relative URLs resolve correctly under whatever path
     # prefix Ingress assigns; see base.html.
     conn = get_db()
+    real_policies = load_parsed_policies(conn)
     return render_template(
         "recommendations.html",
-        zero_trust_items=_load_items(conn, "zero_trust"),
+        zero_trust_items=_load_items(conn, "zero_trust", real_policies),
         setup_items=_load_items(conn, "setup"),
     )
 

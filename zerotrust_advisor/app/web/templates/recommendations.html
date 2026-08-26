@@ -16,22 +16,40 @@
 
 <div class="tab-panel" data-tab-panel="zero_trust">
   <p class="hint">Real segmentation decisions — a specific firewall allow rule to consider, based on
-     recurring traffic between two devices.</p>
+     recurring traffic between two devices. New recommendations skip anything a narrow, enabled allow
+     rule already covers on your UniFi console — a broad "allow everything" rule never counts as
+     coverage. Once you've accepted one, "Implemented"/"Not yet implemented" checks the same way:
+     port-only, best-effort — it can't see whether the source/destination scope actually matches.</p>
   {% if not zero_trust_items %}
     <p>Nothing yet. Recommendations show up here once the same traffic pattern has recurred
        across enough distinct days — see the Setup screen to check what's being collected.</p>
   {% else %}
-  <input type="search" class="table-filter" data-filter-for="zero-trust-list"
-         placeholder="Filter by device, network, port, action…">
+  <div class="filter-row">
+    <input type="search" class="table-filter" data-filter-for="zero-trust-list"
+           placeholder="Filter by device, network, port, action…">
+    <select class="table-filter" data-status-filter-for="zero-trust-list">
+      <option value="">All statuses</option>
+      <option value="pending">Pending</option>
+      <option value="accepted">Accepted</option>
+      <option value="dismissed">Dismissed</option>
+    </select>
+  </div>
   <div class="recommendation-list" id="zero-trust-list">
   {% for item in zero_trust_items %}
-  <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
+  <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}" data-status="{{ item.status }}">
     <header>
       <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
       {% if item.structured.action %}
       <span class="chip {{ 'chip-danger' if item.structured.action == 'block' else 'chip-ok' }}">{{ item.structured.action }}</span>
       {% endif %}
       <span class="status">{{ item.status }}</span>
+      {% if item.implemented is not none %}
+        {% if item.implemented %}
+        <span class="chip chip-ok">Implemented</span>
+        {% else %}
+        <span class="chip chip-warn">Not yet implemented</span>
+        {% endif %}
+      {% endif %}
       <time>{{ item.created_at | fmt_time }}</time>
     </header>
     <p class="summary">{{ item.summary }}</p>
@@ -73,7 +91,7 @@
   <input type="search" class="table-filter" data-filter-for="setup-list" placeholder="Filter…">
   <div class="recommendation-list" id="setup-list">
   {% for item in setup_items %}
-  <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
+  <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}" data-status="{{ item.status }}">
     <header>
       <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
       <span class="status">{{ item.status }}</span>

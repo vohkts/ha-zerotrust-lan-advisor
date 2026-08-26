@@ -68,6 +68,41 @@ def test_run_now_returns_immediately_without_waiting_for_the_pass(tmp_path, monk
     assert finished.wait(timeout=2)  # background thread does eventually run it
 
 
+def test_accepted_recommendation_shows_as_implemented_once_a_matching_rule_exists(tmp_path, monkeypatch):
+    import json
+
+    from app.db import connect
+
+    client = _client(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            """INSERT INTO recommendations
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
+                confidence, evidence_event_ids)
+               VALUES (?, 'accepted', 'zero_trust', 'IoT|Server|Unclassified|Unclassified|17|123',
+                       'NTP query', '{}', 'medium', '[]')""",
+            (time.time(),),
+        )
+        conn.execute(
+            "INSERT INTO unifi_policies (id, name, enabled, action, protocol, raw_json, fetched_at) "
+            "VALUES ('p1', 'Allow NTP', 1, 'ALLOW', 'udp', ?, ?)",
+            (
+                json.dumps(
+                    {
+                        "action": {"type": "ALLOW"},
+                        "destination": {"trafficFilter": {"portFilter": {"items": [{"type": "PORT_NUMBER", "value": 123}]}}},
+                    }
+                ),
+                time.time(),
+            ),
+        )
+        conn.commit()
+
+    body = client.get("/recommendations").get_data(as_text=True)
+    assert "Implemented" in body
+
+
 def test_run_now_reports_already_running_without_starting_a_second_pass(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(routes_recommendations, "run_analysis_now", lambda conn, config: calls.append(1))

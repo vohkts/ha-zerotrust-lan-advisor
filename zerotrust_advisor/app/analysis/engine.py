@@ -26,6 +26,7 @@ from app.analysis.network_map import (
     resolve_label,
 )
 from app.analysis.noise import is_own_receiver_traffic
+from app.analysis.rule_match import find_covering_policy, load_parsed_policies
 from app.analysis.setup_recommendations import generate_setup_recommendations
 from app.config import Config, read_secret
 from app.llm.client import LLMError, chat_completion
@@ -237,7 +238,12 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     patterns = group_candidate_patterns(events, min_recurring_days=config.min_recurring_days)
 
     known_signatures = _existing_signatures(conn)
-    new_patterns = [p for p in patterns if p.signature not in known_signatures]
+    real_policies = load_parsed_policies(conn)
+    new_patterns = [
+        p
+        for p in patterns
+        if p.signature not in known_signatures and find_covering_policy(real_policies, p.dst_port) is None
+    ]
 
     base_url, api_key = llm_base_url(config)
     written = 0
