@@ -17,6 +17,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.analysis.coverage import CoverageInputs, evaluate_coverage
 from app.analysis.direction import INTERNAL_INTERNAL, classify_direction
+from app.analysis.llm_capacity import PERFORMANCE_SAMPLES, check_host_capacity
 from app.analysis.network_map import NetworkMap, build_network_map
 from app.config import load_config, read_secret, remove_secret, write_secret
 from app.health import read_health
@@ -138,6 +139,8 @@ def _settings_context(conn, saved: bool, restarting: bool, unifi_api_key_error: 
         "unifi_has_key": bool(read_secret("unifi_api_key")),
         "unifi_last_probe": load_probe_report(conn),
         "unifi_api_key_error": unifi_api_key_error,
+        "host_capacity": check_host_capacity(),
+        "performance_samples": PERFORMANCE_SAMPLES,
     }
 
 

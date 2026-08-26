@@ -34,6 +34,31 @@ def _client(tmp_path, monkeypatch):
     return app.test_client()
 
 
+def test_setup_page_shows_capacity_check_in_local_llm_mode(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    resp = client.get("/setup")
+    assert "Local hardware check" in resp.get_data(as_text=True)
+
+
+def test_setup_page_hides_capacity_check_in_remote_llm_mode(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setenv("ZTA_DATA_DIR", str(tmp_path))
+    import app.config as config_module
+
+    monkeypatch.setattr(config_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config_module, "OPTIONS_PATH", tmp_path / "options.json")
+    monkeypatch.setattr(config_module, "SECRETS_DIR", tmp_path / "secrets")
+    (tmp_path / "options.json").write_text(json.dumps({"llm_mode": "remote"}))
+
+    app = create_app()
+    app.testing = True
+    client = app.test_client()
+
+    resp = client.get("/setup")
+    assert "Local hardware check" not in resp.get_data(as_text=True)
+
+
 def test_save_triggers_a_restart_and_says_so(tmp_path, monkeypatch):
     monkeypatch.setattr(routes_setup, "update_options", lambda opts: None)
     restarted = []

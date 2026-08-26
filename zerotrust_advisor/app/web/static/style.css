@@ -307,6 +307,13 @@ fieldset textarea, fieldset select {
   font-size: 0.9rem;
 }
 fieldset input[type="checkbox"] { margin-right: 0.4rem; }
+.capacity-check {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+.capacity-check h4 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+.capacity-check table { margin-top: 0.5rem; font-size: 0.82rem; }
 
 .hint { color: var(--muted); font-size: 0.85rem; }
 

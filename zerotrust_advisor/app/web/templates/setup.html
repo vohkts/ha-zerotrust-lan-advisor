@@ -175,6 +175,43 @@
       <em>classes</em> like "iPhone" or "Apple HomePod / smart speaker", never real
       IPs, MACs or hostnames. See DOCS.md for exactly what that means before turning it on.
     </p>
+
+    {% if config.llm_mode == 'local' %}
+    <div class="capacity-check">
+      <h4>Local hardware check</h4>
+      <p class="hint">
+        This host: {{ host_capacity.cpu_cores if host_capacity.cpu_cores is not none else "unknown" }} CPU core(s),
+        {{ "%.1f"|format(host_capacity.ram_total_gb) ~ " GB" if host_capacity.ram_total_gb is not none else "unknown" }} RAM total
+        {% if host_capacity.ram_available_gb is not none %}({{ "%.1f"|format(host_capacity.ram_available_gb) }} GB available now){% endif %}.
+      </p>
+      {% if host_capacity.below_recommended %}
+      <p class="chip chip-warn">Below the comfortable range for local generation</p>
+      <ul class="hint">
+        {% for reason in host_capacity.reasons %}<li>{{ reason }}</li>{% endfor %}
+      </ul>
+      {% else %}
+      <p class="chip chip-ok">Comfortable for local generation</p>
+      {% endif %}
+      <p class="hint">What to expect, by CPU core count &mdash; the bundled 3B model, one structured
+         recommendation per "Run analysis now" pattern. Only the 4-core row is an actual measurement
+         from this project's own production hardware; the rest are rough, clearly-labeled scaling
+         estimates, not measurements &mdash; actual speed also depends on memory bandwidth and
+         whatever else this host is doing at the time.</p>
+      <table class="status-table" data-no-paginate>
+        <thead><tr><th>CPU cores</th><th>Tokens/sec</th><th>Per recommendation</th><th>Notes</th></tr></thead>
+        <tbody>
+          {% for sample in performance_samples %}
+          <tr>
+            <td>{{ sample.cores }}{% if sample.measured %} <span class="chip chip-ok">measured</span>{% endif %}</td>
+            <td>{{ sample.tokens_per_sec }}</td>
+            <td>{{ sample.seconds_per_recommendation }}</td>
+            <td>{{ sample.note }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
   </fieldset>
 
   <fieldset id="unifi-fieldset">
