@@ -801,7 +801,9 @@ if (applyDialog) {
 
     const warn = document.createElement("p");
     warn.className = "chip chip-warn";
-    warn.textContent = "This will create a new firewall rule on your UniFi console.";
+    warn.textContent = data.payload.enabled
+      ? "This will create a new, active firewall rule on your UniFi console."
+      : "This will create a new firewall rule on your UniFi console — DISABLED (zero traffic impact) while the write flow is being validated live.";
     contentEl.appendChild(warn);
 
     const pre = document.createElement("pre");

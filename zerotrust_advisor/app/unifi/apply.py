@@ -40,6 +40,16 @@ class ApplyNotPossible(Exception):
     never wrapped into a generic error -- the reason is the point."""
 
 
+# TEMPORARY, deliberate safety measure for validating the real write path
+# against a real console: every created policy starts disabled, so it has
+# zero effect on real traffic no matter what it's scoped to, while the
+# user tries applying a handful of recommendations for real and confirms
+# they land correctly. Flip to True once that's been confirmed working --
+# nothing else about the flow changes either way; this only controls the
+# one field. See STAGE3_APPLY_GOVERNANCE.md's "Current testing mode" note.
+CREATE_RULES_ENABLED = False
+
+
 @dataclass(frozen=True)
 class PreparedPolicy:
     """Everything needed to show an honest preview and, if confirmed, to
@@ -166,7 +176,7 @@ def build_policy_payload(
 
     return {
         "name": name,
-        "enabled": True,
+        "enabled": CREATE_RULES_ENABLED,
         "loggingEnabled": True,
         "action": action_payload,
         "ipProtocolScope": {

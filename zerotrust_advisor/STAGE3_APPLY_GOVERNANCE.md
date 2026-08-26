@@ -17,6 +17,26 @@ run continuously against a real production network throughout its
 development. Stage 3 is the first thing that gives it up, for one narrow
 capability, and this document is what keeps the loss narrow.
 
+## 0. Current status: live-testing mode (temporary)
+
+Implemented and deployed, but not yet exercised against a real write —
+the user asked to validate the real write path first with zero risk to
+real traffic, rather than trust the first live apply to also be a fully
+active one. Every rule this add-on creates right now is forced to
+`enabled: false` regardless of what the recommendation said
+(`app.unifi.apply.CREATE_RULES_ENABLED`, currently `False`) — a UniFi
+policy that's disabled has no effect on any traffic no matter how it's
+scoped, so a mistake in the write path during this testing phase is
+inert, not a real segmentation change. Everything else in this document
+already applies in full during this phase: create-only, one at a time,
+previewed and confirmed, gated behind the same three conditions.
+
+This is a single, clearly-marked flag, not a separate code path — flip it
+back once a handful of applies have been confirmed to land correctly
+(name, scope, protocol/port all match what was previewed, on the actual
+UniFi console). Until then, expect every applied rule to show up
+disabled in UniFi; that's expected, not a bug to chase.
+
 ## 1. What this stage is
 
 A **human-gated** ability to create exactly the firewall policy a

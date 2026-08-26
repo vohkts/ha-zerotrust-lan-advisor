@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"
 
 from app import db
 from app.analysis.network_map import DiscoveredNetwork, NetworkMap, UnifiNetworkInfo
+from app.unifi import apply as apply_module
 from app.unifi.apply import ApplyNotPossible, build_policy_payload
 
 NOW = time.time()
@@ -41,6 +42,14 @@ def _seed_networks(conn):
         (json.dumps({"zoneId": "zone-server"}), NOW),
     )
     conn.commit()
+
+
+def test_rules_are_currently_created_disabled_for_safe_live_testing():
+    # A deliberate, temporary flag -- flip it only on purpose. If this
+    # test starts failing because someone flipped CREATE_RULES_ENABLED to
+    # True, that's the point: it's a reminder this was a live-testing
+    # safety measure, not a permanent design decision.
+    assert apply_module.CREATE_RULES_ENABLED is False
 
 
 def test_population_source_to_single_device_destination(tmp_path):
@@ -79,7 +88,11 @@ def test_population_source_to_single_device_destination(tmp_path):
         "ipVersion": "IPV4_AND_IPV6",
         "protocolFilter": {"type": "PROTOCOL_NUMBER", "matchOpposite": False, "protocolNumber": 17},
     }
-    assert payload["enabled"] is True
+    # Temporary safety measure while validating the write flow live: every
+    # created rule starts disabled, zero traffic impact either way -- see
+    # apply.CREATE_RULES_ENABLED's own docstring. Update this assertion
+    # deliberately, not incidentally, once that flips back.
+    assert payload["enabled"] is False
     assert payload["name"] == "Allow IoT to Pi-hole"
 
 
