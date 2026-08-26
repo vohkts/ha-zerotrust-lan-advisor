@@ -196,6 +196,17 @@ def _client(tmp_path, monkeypatch):
     return app.test_client()
 
 
+def test_not_set_up_page_links_to_a_real_reachable_settings_page(tmp_path, monkeypatch):
+    # Real bug found live: this page linked to href="settings", but
+    # /settings only ever accepts POST (it's the form-save target, not a
+    # page) -- clicking that link 405'd. The real page is /setup.
+    client = _client(tmp_path, monkeypatch)
+    body = client.get("/network").get_data(as_text=True)
+    assert 'href="settings"' not in body
+    assert 'href="setup"' in body
+    assert client.get("/setup").status_code == 200
+
+
 def test_policy_detail_requires_id(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     resp = client.get("/network/policy-detail")

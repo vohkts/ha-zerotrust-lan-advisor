@@ -6,12 +6,12 @@
   {% if not unifi_enabled %}
   <p class="hint">Not set up. This page shows your UniFi UDM's own view of your network — zones, firewall
      policies, devices, connected clients — and cross-references it against what this add-on observes.
-     Enable the UniFi integration and test a connection from the <a href="settings">Settings</a> screen to
+     Enable the UniFi integration and test a connection from the <a href="setup">Settings</a> screen to
      turn this on.</p>
   {% else %}
   <p class="chip chip-warn">UniFi integration is enabled but not currently working — no capability has
      succeeded yet.</p>
-  <p class="hint">Check the API key and console address on the <a href="settings">Settings</a> screen and
+  <p class="hint">Check the API key and console address on the <a href="setup">Settings</a> screen and
      use "Test connection" there to see exactly what's failing.</p>
   {% endif %}
 {% else %}

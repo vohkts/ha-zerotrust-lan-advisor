@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
 
 from app.analysis.network_map import (
     NetworkMap,
@@ -48,14 +47,6 @@ class ApplyNotPossible(Exception):
 # nothing else about the flow changes either way; this only controls the
 # one field. See STAGE3_APPLY_GOVERNANCE.md's "Current testing mode" note.
 CREATE_RULES_ENABLED = False
-
-
-@dataclass(frozen=True)
-class PreparedPolicy:
-    """Everything needed to show an honest preview and, if confirmed, to
-    send exactly this and nothing else."""
-    payload: dict
-    site_id: str
 
 
 def _confirmed_network_name(

@@ -4,9 +4,13 @@ A Home Assistant add-on that watches your router's firewall and flow logs
 and suggests narrow, evidence-backed allow rules for a zero-trust network —
 no spreadsheets, no CLI, no YAML editing.
 
-It does **not** touch your firewall. It listens, learns, and recommends.
-You review every suggestion in the add-on's own screen inside Home
-Assistant and decide what to do with it.
+By default, it does **not** touch your firewall — it listens, learns, and
+recommends. You review every suggestion in the add-on's own screen inside
+Home Assistant and decide what to do with it. An optional, off-by-default
+capability lets it create the exact rule a recommendation described for
+you, one at a time, only after you've explicitly confirmed it — see
+[`zerotrust_advisor/STAGE3_APPLY_GOVERNANCE.md`](zerotrust_advisor/STAGE3_APPLY_GOVERNANCE.md)
+for the full contract.
 
 ## What it does
 
@@ -43,10 +47,10 @@ Assistant and decide what to do with it.
 
 ## Status
 
-Stage 1 and Stage 2 are built and running. Proof-of-concept target is a
+All three stages are built and running. Proof-of-concept target is a
 UniFi UDM Pro, though the passive log parsing is intentionally tolerant
-rather than hard-coded to one router; the Stage 2 API integration is UniFi
-UDM-only by design. See [`zerotrust_advisor/DOCS.md`](zerotrust_advisor/DOCS.md)
+rather than hard-coded to one router; the Stage 2/3 UniFi integration is
+UniFi UDM-only by design. See [`zerotrust_advisor/DOCS.md`](zerotrust_advisor/DOCS.md)
 for setup and [`zerotrust_advisor/CHANGELOG.md`](zerotrust_advisor/CHANGELOG.md)
 for what's landed so far.
 
@@ -59,12 +63,14 @@ for what's landed so far.
 
 ## Roadmap
 
-Three stages. Stage one (passive log analysis) and stage two (optional,
-read-only UniFi UDM integration) are both built. Stage three, entirely
-optional and off by default even once it exists, would let the add-on
-apply an approved rule for you instead of you doing it by hand — not built
-yet; a setting for it already exists in Settings, clearly labeled as not
-yet functional, but nothing in this codebase writes to your router.
+Three stages, all built. Stage one is passive log analysis; stage two is
+the optional, read-only UniFi UDM integration; stage three, entirely
+optional and off by default, lets the add-on apply an approved rule for
+you instead of you doing it by hand — gated behind three independent
+settings before it's reachable at all, and scoped to *creating* one narrow
+rule at a time, never modifying or deleting anything. See
+[`zerotrust_advisor/STAGE3_APPLY_GOVERNANCE.md`](zerotrust_advisor/STAGE3_APPLY_GOVERNANCE.md)
+for the full contract.
 
 ## Contributing
 

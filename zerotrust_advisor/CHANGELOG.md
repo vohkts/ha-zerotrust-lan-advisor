@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.1
+
+### Fixed
+
+- Recommendations could suggest a "zero trust" rule between two public
+  IPs with no relationship to any of the user's own network zones (e.g.
+  ICMP between two unrelated external ranges) — the engine had no filter
+  excluding external-to-external traffic from pattern-grouping at all.
+  Internal-to-external patterns (a real local device talking to one
+  external service) are unaffected and still recommended.
+- Recommendation cards only ever described a pattern in pseudonymized
+  terms ("a single, consistently the same device"), with no way to tell
+  which real device that was. Real device names/IPs — re-derived locally
+  from the recommendation's own stored evidence — now show directly on
+  the card. This never touches what's sent to the LLM; it's the same
+  local-only display the Traffic page already relies on.
+- Two broken `Settings` links on the Network screen pointed at
+  `/settings` (POST-only, the form's save target, not a page) instead of
+  `/setup` — clicking either 405'd.
+- Removed an orphaned `coverage_status` table from the schema: never
+  read or written anywhere in the codebase (coverage checks compute
+  live from health-file data instead).
+
 ## 0.4.0
 
 ### Added

@@ -205,17 +205,6 @@ CREATE TABLE IF NOT EXISTS unifi_policies (
     raw_json TEXT NOT NULL,
     fetched_at REAL NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS coverage_status (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    checked_at REAL NOT NULL,
-    last_firewall_event_at REAL,
-    last_flow_event_at REAL,
-    rejected_syslog_count INTEGER NOT NULL DEFAULT 0,
-    rejected_flow_count INTEGER NOT NULL DEFAULT 0,
-    east_west_evidence_seen INTEGER NOT NULL DEFAULT 0,
-    gap_flags_json TEXT
-);
 """
 
 # (table, column, DDL for the new column) — CREATE TABLE IF NOT EXISTS above

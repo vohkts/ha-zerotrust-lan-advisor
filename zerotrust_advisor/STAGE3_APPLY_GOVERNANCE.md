@@ -169,11 +169,11 @@ them alone:
 - `recommendations` table gains `applied_at REAL` and `applied_policy_id
   TEXT`, both nullable, both untouched by anything except a successful
   apply.
-- One new route, `POST /recommendations/<id>/apply-preview` (returns the
-  literal payload, makes no network call) and `POST
-  /recommendations/<id>/apply` (makes the one call, synchronous). Same
-  one-segment-flat, relative-URL convention as every other route in this
-  add-on.
+- Two new routes: `GET /recommendations/<id>/apply-preview` (returns the
+  literal payload, makes no network call and changes nothing, hence GET)
+  and `POST /recommendations/<id>/apply` (makes the one call,
+  synchronous). Same one-segment-flat, relative-URL convention as every
+  other route in this add-on.
 - Every prior real bug this project has hit while integrating with a real
   UniFi console — the missing subnet field, the wrong client `network_id`
   fallback, the discovery that raw policy JSON is richer than assumed —

@@ -182,13 +182,16 @@ downtime for the receivers/web UI each time you save.
 | Ignore own-receiver traffic | See above. On by default. |
 | Enable mDNS listening | Passive mDNS for better device classification (real hostnames instead of vendor/IP fallback). Requires host networking, which is the *only* reason this add-on would ever need it — left off by default since it's a real network-isolation trade-off, not because it doesn't work. |
 | LLM mode | Local (bundled `llama-server`, runs on your own hardware) or Remote (any OpenAI-compatible endpoint). One code path handles both — just a different base URL and key. |
+| Local model path | Optional path under `/data/models` to a GGUF file, if you don't want the bundled default model. Only used in Local mode. |
 | Remote base URL / API key | Only used in Remote mode. The key is written to `/data/secrets/`, never to the options store, never logged. |
 | Send real hostnames/IPs to the LLM | Off by default, either LLM mode. Skips the usual class/network-label pseudonymization — only sensible if the endpoint you've configured above (local or remote) never actually leaves your own network, e.g. a self-hosted Ollama instance. |
 | Enable UniFi integration | Off by default. See "Stage 2: UniFi UDM integration" above. |
 | UniFi console IP / API key | The key is written to `/data/secrets/`, same as the remote LLM key. |
 | Verify UniFi console TLS certificate | Off by default, for a local UDM's self-signed certificate. |
+| Ignore traffic to/from the UniFi console itself | On by default. The console's own management IP dominates Hosts/flow tables and recommendations with infrastructure noise (DNS/DHCP served to every device, health checks) — same reasoning as ignoring own-receiver traffic, for a different known-infrastructure address. Only takes effect once the UniFi console IP above is set. |
 | Firewall rule apply mode | "Manual" (default) is the only mode with real behavior — see "Applying a recommendation to UniFi" above. "Automatic" is stored but does nothing. |
 | I understand this add-on can create firewall rules | Off by default. One of three independent conditions required before Apply is reachable at all. |
+| Display times in UTC | Off by default — timestamps normally show in Home Assistant's own configured timezone (read from the Supervisor), falling back to UTC if that can't be determined. Turn this on to always show plain UTC instead. |
 
 ## Privacy, if you use a remote LLM endpoint
 
