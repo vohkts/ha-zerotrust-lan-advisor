@@ -24,6 +24,7 @@ without either.
 from __future__ import annotations
 
 import ipaddress
+import re
 import sqlite3
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -213,6 +214,35 @@ def unifi_network_for_ip(ip: str, unifi_networks: list[UnifiNetworkInfo]) -> str
     return None
 
 
+def load_unifi_vlan_names(conn: sqlite3.Connection) -> dict[int, str]:
+    """vlan_id -> real network name, for every synced network -- unlike
+    load_unifi_networks() above, this doesn't require subnet data at all
+    (confirmed live: vlan_id is reliably populated even on a console whose
+    network objects carry no subnet field whatsoever). Pairs with
+    unifi_network_for_interface() below."""
+    rows = conn.execute("SELECT vlan_id, name FROM unifi_networks WHERE vlan_id IS NOT NULL").fetchall()
+    return {vlan_id: name for vlan_id, name in rows}
+
+
+_BRIDGE_VLAN_RE = re.compile(r"^br(\d+)$")
+
+
+def unifi_network_for_interface(iface: str, vlan_names: dict[int, str]) -> str | None:
+    """UniFi's own bridge interfaces are named br<vlanId> -- confirmed live
+    against a real console's actual captured IN=/OUT= interface names
+    (br22, br2, br50, ...) matched one-to-one against that console's real
+    vlan_id per network. br0 carries the native/untagged VLAN, which is
+    conventionally VLAN 1. This resolves real network names from data this
+    add-on already captures (firewall log interfaces) and a field that's
+    reliably present (vlan_id), entirely sidestepping the missing-subnet
+    problem unifi_network_for_ip() has on this console."""
+    match = _BRIDGE_VLAN_RE.match(iface)
+    if not match:
+        return None
+    vlan_id = int(match.group(1)) or 1
+    return vlan_names.get(vlan_id)
+
+
 def unifi_gateway_ips(unifi_networks: list[UnifiNetworkInfo]) -> set[str]:
     """The Integration API exposes a network's subnet but no explicit
     gateway-IP field -- so this leans on UniFi's own convention (true for
@@ -261,17 +291,21 @@ def resolve_label(
     friendly_names: dict[str, str],
     manual_labels: list[NetworkLabel] | None = None,
     unifi_networks: list[UnifiNetworkInfo] | None = None,
+    vlan_names: dict[int, str] | None = None,
 ) -> str:
     """The one place display-name resolution happens, in priority order:
     an explicit manual CIDR=Label override (Settings, optional) > a
     friendly name given to an auto-discovered network (a deliberate
     per-network customization, same spirit as a manual override) > a real
-    UniFi-confirmed network name, once the console integration is
-    configured (see load_unifi_networks) > that network's guessed IP range
-    (a bridge name like "br21" means nothing to a user, or to a
-    recommendation's prose) > the discovered key itself, only if no IPv4
-    range could be guessed at all > the raw IP, when nothing was ever
-    discovered for it (e.g. a WAN address never seen locally)."""
+    UniFi-confirmed network name, from either the network's subnet (see
+    load_unifi_networks) or, when that's unavailable (confirmed live: not
+    every UniFi Network Application version returns one), its interface's
+    br<vlanId> name matched against vlan_names (see load_unifi_vlan_names)
+    > that network's guessed IP range (a bridge name like "br21" means
+    nothing to a user, or to a recommendation's prose, on its own) > the
+    discovered key itself, only if no IPv4 range could be guessed at all
+    > the raw IP, when nothing was ever discovered for it (e.g. a WAN
+    address never seen locally)."""
     if manual_labels:
         manual = label_for_ip(ip, manual_labels)
         if manual != ip:
@@ -285,6 +319,11 @@ def resolve_label(
         unifi_name = unifi_network_for_ip(ip, unifi_networks)
         if unifi_name:
             return unifi_name
+
+    if key is not None and vlan_names:
+        iface_name = unifi_network_for_interface(key, vlan_names)
+        if iface_name:
+            return iface_name
 
     if key is None:
         return ip

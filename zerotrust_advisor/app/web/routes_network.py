@@ -146,6 +146,7 @@ def _like_pattern(text: str) -> str:
     return f"%{escaped}%"
 
 
+
 @network_bp.route("/network/policy-detail")
 def policy_detail():
     """On-demand only -- computed per policy on click, not folded into the

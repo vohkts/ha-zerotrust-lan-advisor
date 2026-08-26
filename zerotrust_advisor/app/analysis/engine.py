@@ -17,7 +17,14 @@ from dataclasses import dataclass
 
 from app.analysis.grouping import GroupableEvent, group_candidate_patterns
 from app.analysis.netlabels import parse_network_labels
-from app.analysis.network_map import NetworkMap, build_network_map, load_friendly_names, load_unifi_networks, resolve_label
+from app.analysis.network_map import (
+    NetworkMap,
+    build_network_map,
+    load_friendly_names,
+    load_unifi_networks,
+    load_unifi_vlan_names,
+    resolve_label,
+)
 from app.analysis.noise import is_own_receiver_traffic
 from app.analysis.setup_recommendations import generate_setup_recommendations
 from app.config import Config, read_secret
@@ -102,6 +109,7 @@ def _load_events(
     ignore_own_receiver_traffic: bool,
     unifi_networks: list | None = None,
     unifi_console_host: str | None = None,
+    vlan_names: dict[int, str] | None = None,
 ) -> list[GroupableEvent]:
     events: list[GroupableEvent] = []
 
@@ -123,8 +131,8 @@ def _load_events(
             # (DNS/DHCP served to every device, health checks), not a
             # segmentation decision worth a recommendation.
             continue
-        src_label = resolve_label(src_ip, network_map, friendly_names, manual_labels, unifi_networks)
-        dst_label = resolve_label(dst_ip, network_map, friendly_names, manual_labels, unifi_networks)
+        src_label = resolve_label(src_ip, network_map, friendly_names, manual_labels, unifi_networks, vlan_names)
+        dst_label = resolve_label(dst_ip, network_map, friendly_names, manual_labels, unifi_networks, vlan_names)
         events.append(
             GroupableEvent(
                 event_id=event_id,
@@ -215,6 +223,7 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)
     unifi_networks = load_unifi_networks(conn)
+    vlan_names = load_unifi_vlan_names(conn)
     host_ip = get_host_ip()
     _purge_stale_receiver_recommendations(conn, config, host_ip)
     events = _load_events(
@@ -223,6 +232,7 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
         ignore_own_receiver_traffic=config.ignore_own_receiver_traffic,
         unifi_networks=unifi_networks,
         unifi_console_host=config.unifi_host if config.ignore_unifi_console_traffic else None,
+        vlan_names=vlan_names,
     )
     patterns = group_candidate_patterns(events, min_recurring_days=config.min_recurring_days)
 

@@ -13,8 +13,10 @@ from app.analysis.network_map import (
     infer_ip_keys,
     load_friendly_names,
     load_unifi_networks,
+    load_unifi_vlan_names,
     resolve_label,
     set_friendly_name,
+    unifi_network_for_interface,
 )
 
 NOW = time.time()
@@ -163,6 +165,52 @@ def test_load_unifi_networks_skips_an_unparseable_subnet(tmp_path):
     conn.commit()
     networks = load_unifi_networks(conn)
     assert [n.name for n in networks] == ["Good"]
+
+
+def test_unifi_network_for_interface_matches_br_prefix_to_vlan_id():
+    # Confirmed live against a real console: br<vlanId> is UniFi's own
+    # bridge-naming convention, and reliable even when the network API's
+    # subnet field is entirely absent (which it was, on that console).
+    vlan_names = {22: "IoT", 2: "Home", 1: "Management"}
+    assert unifi_network_for_interface("br22", vlan_names) == "IoT"
+    assert unifi_network_for_interface("br2", vlan_names) == "Home"
+    assert unifi_network_for_interface("br0", vlan_names) == "Management"  # native/untagged -> VLAN 1
+    assert unifi_network_for_interface("wgsrv1", vlan_names) is None  # not a bridge at all
+    assert unifi_network_for_interface("br99", vlan_names) is None  # no matching vlan_id
+
+
+def test_load_unifi_vlan_names_works_without_any_subnet_data(tmp_path):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    conn.execute(
+        "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) "
+        "VALUES ('n1', 'IoT', 22, NULL, '{}', ?)", (NOW,),
+    )
+    conn.commit()
+    assert load_unifi_vlan_names(conn) == {22: "IoT"}
+
+
+def test_resolve_label_falls_back_to_interface_vlan_match_when_no_subnet_data(tmp_path):
+    # The actual bug found live: unifi_network_for_ip() alone is a no-op
+    # when the API returns no subnet, so real network names never resolved
+    # at all -- even though vlan_id (and this add-on's own interface
+    # discovery) were both available the whole time.
+    conn = _seed_db(tmp_path)
+    network_map = build_network_map(conn, since=NOW - 60)
+    vlan_names = {1: "IoT"}  # br1 -> vlan 1 -> "IoT", per the seeded br1/br2 interfaces
+
+    assert resolve_label("192.168.10.5", network_map, {}, vlan_names=vlan_names) == "IoT"
+
+
+def test_resolve_label_prefers_unifi_subnet_match_over_interface_vlan_match(tmp_path):
+    conn = _seed_db(tmp_path)
+    network_map = build_network_map(conn, since=NOW - 60)
+    unifi_networks = [UnifiNetworkInfo(name="From subnet", network=ipaddress.ip_network("192.168.10.0/24"))]
+    vlan_names = {1: "From vlan"}
+
+    assert (
+        resolve_label("192.168.10.5", network_map, {}, unifi_networks=unifi_networks, vlan_names=vlan_names)
+        == "From subnet"
+    )
 
 
 def test_set_friendly_name_empty_string_clears_it(tmp_path):

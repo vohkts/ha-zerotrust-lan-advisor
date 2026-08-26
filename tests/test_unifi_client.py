@@ -92,6 +92,21 @@ def test_list_devices_maps_alternate_field_names(monkeypatch):
     assert devices[0].state == "ONLINE"
 
 
+def test_list_clients_network_id_never_falls_back_to_uplink_device_id(monkeypatch):
+    # Confirmed live against a real console: uplinkDeviceId is the AP/switch
+    # a client is connected *through*, not its network -- using it as a
+    # network_id fallback silently produced a value that never matched any
+    # real unifi_networks.id, which is why every network's client count
+    # showed 0. A real client payload with no networkId at all should leave
+    # network_id as None, not populate it with the wrong kind of ID.
+    client = _client(
+        monkeypatch,
+        {"data": [{"id": "c1", "ipAddress": "10.0.0.9", "uplinkDeviceId": "ap-1"}]},
+    )
+    clients = client.list_clients("default")
+    assert clients[0].network_id is None
+
+
 def test_list_clients_falls_back_to_hostname_and_mac(monkeypatch):
     client = _client(monkeypatch, {"data": [{"id": "c1", "hostname": "iPhone", "mac": "cc:dd", "ip": "10.0.0.9"}]})
     clients = client.list_clients("default")

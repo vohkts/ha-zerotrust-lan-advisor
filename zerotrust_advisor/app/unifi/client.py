@@ -238,7 +238,15 @@ class UnifiClientAPI:
                     name=item.get("name") or item.get("hostname"),
                     mac=item.get("macAddress") or item.get("mac"),
                     ip=item.get("ipAddress") or item.get("ip"),
-                    network_id=item.get("networkId") or item.get("uplinkDeviceId"),
+                    # `uplinkDeviceId` used to be tried as a fallback here,
+                    # but it's the AP/switch a client is connected *through*,
+                    # not its network -- confirmed live it never matches any
+                    # real unifi_networks.id, which is why every network's
+                    # client count silently showed 0. Real client payloads
+                    # on this API version carry no per-VLAN reference at all
+                    # (see network_map.py's interface->vlan_id resolution
+                    # for how network names get resolved without it).
+                    network_id=item.get("networkId"),
                     connected_at=item.get("connectedAt"),
                     client_type=_client_type(item),
                     raw=item,

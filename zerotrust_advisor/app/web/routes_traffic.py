@@ -29,12 +29,14 @@ from app.analysis.netlabels import parse_network_labels
 from app.analysis.network_map import (
     NetworkMap,
     build_network_map,
+    guessed_gateway_ips,
     load_friendly_names,
     load_unifi_networks,
+    load_unifi_vlan_names,
     resolve_label,
     set_friendly_name,
-    guessed_gateway_ips,
     unifi_gateway_ips,
+    unifi_network_for_interface,
     unifi_network_for_ip,
 )
 from app.db import connect
@@ -130,16 +132,16 @@ def _load_identities(conn) -> dict[str, dict]:
     return identities
 
 
-def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_names, manual_labels, identities, unifi_networks=()) -> dict:
+def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_names, manual_labels, identities, unifi_networks=(), vlan_names=None) -> dict:
     src_info = identities.get(src) or {}
     dst_info = identities.get(dst) or {}
     return {
         "src": src,
-        "src_network": resolve_label(src, network_map, friendly_names, manual_labels, unifi_networks),
+        "src_network": resolve_label(src, network_map, friendly_names, manual_labels, unifi_networks, vlan_names),
         "src_name": src_info.get("hostname"),
         "src_class": src_info.get("device_class"),
         "dst": dst,
-        "dst_network": resolve_label(dst, network_map, friendly_names, manual_labels, unifi_networks),
+        "dst_network": resolve_label(dst, network_map, friendly_names, manual_labels, unifi_networks, vlan_names),
         "dst_name": dst_info.get("hostname"),
         "dst_class": dst_info.get("device_class"),
         "proto": PROTO_NAMES.get(proto, str(proto)),
@@ -150,7 +152,7 @@ def _flow_row(src, dst, proto, port, count, last_seen, network_map, friendly_nam
     }
 
 
-def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str], unifi_networks=()) -> tuple[list[dict], int]:
+def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str], unifi_networks=(), vlan_names=None) -> tuple[list[dict], int]:
     """Returns (rows, count hidden as noise). Three kinds of noise filtered
     out, not just capped:
 
@@ -185,6 +187,9 @@ def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str],
         if unifi_networks and sample_ip is not None and unifi_network_for_ip(sample_ip, unifi_networks):
             hidden += 1
             continue
+        if vlan_names and unifi_network_for_interface(net.key, vlan_names):
+            hidden += 1
+            continue
         rows.append(
             {
                 "key": net.key,
@@ -200,7 +205,7 @@ def _build_network_rows(network_map: NetworkMap, friendly_names: dict[str, str],
     return rows, hidden
 
 
-def _build_host_rows(network_map, friendly_names, manual_labels, identities, events: list[_Event], unifi_networks=()) -> tuple[list[dict], int]:
+def _build_host_rows(network_map, friendly_names, manual_labels, identities, events: list[_Event], unifi_networks=(), vlan_names=None) -> tuple[list[dict], int]:
     """Returns (rows, count hidden as external). A public IP like 1.1.1.1
     shows up constantly as a flow endpoint (it's a hugely popular DNS
     resolver) but isn't a "host" in any inventory sense — it's not a
@@ -231,7 +236,7 @@ def _build_host_rows(network_map, friendly_names, manual_labels, identities, eve
             {
                 "ip": ip,
                 "name": info.get("hostname") or ("Network gateway" if is_gateway else None),
-                "network": resolve_label(ip, network_map, friendly_names, manual_labels, unifi_networks),
+                "network": resolve_label(ip, network_map, friendly_names, manual_labels, unifi_networks, vlan_names),
                 "device_class": info.get("device_class") or ("Network gateway" if is_gateway else "Unclassified"),
                 "vendor": info.get("vendor"),
                 "confidence": info.get("confidence") or ("high" if is_gateway else "low"),
@@ -243,7 +248,7 @@ def _build_host_rows(network_map, friendly_names, manual_labels, identities, eve
     return rows, len(external_ips)
 
 
-def _build_flow_tables(network_map, friendly_names, manual_labels, identities, events: list[_Event], unifi_networks=()) -> tuple[list[dict], list[dict]]:
+def _build_flow_tables(network_map, friendly_names, manual_labels, identities, events: list[_Event], unifi_networks=(), vlan_names=None) -> tuple[list[dict], list[dict]]:
     counts: Counter = Counter()
     last_seen: dict[tuple, float] = {}
     for e in events:  # newest-first
@@ -252,7 +257,7 @@ def _build_flow_tables(network_map, friendly_names, manual_labels, identities, e
         last_seen.setdefault(key, e.ts)
 
     top_flows = [
-        _flow_row(*key, count, last_seen[key], network_map, friendly_names, manual_labels, identities, unifi_networks)
+        _flow_row(*key, count, last_seen[key], network_map, friendly_names, manual_labels, identities, unifi_networks, vlan_names)
         for key, count in counts.most_common(_TOP_FLOWS_LIMIT)
     ]
 
@@ -264,7 +269,7 @@ def _build_flow_tables(network_map, friendly_names, manual_labels, identities, e
             continue
         seen.add(key)
         recent_examples.append(
-            _flow_row(*key, counts[key], e.ts, network_map, friendly_names, manual_labels, identities, unifi_networks)
+            _flow_row(*key, counts[key], e.ts, network_map, friendly_names, manual_labels, identities, unifi_networks, vlan_names)
         )
         if len(recent_examples) >= _RECENT_EXAMPLES_LIMIT:
             break
@@ -295,17 +300,18 @@ def traffic_sections():
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)
     unifi_networks = load_unifi_networks(conn)
+    vlan_names = load_unifi_vlan_names(conn)
     console_filter = config.unifi_host if config.ignore_unifi_console_traffic else None
     events, hidden_console_count = _load_events(conn, since, console_filter)
     identities = _load_identities(conn)
 
     direction_counts = count_directions([(e.src_ip, e.dst_ip) for e in events])
-    network_rows, hidden_network_count = _build_network_rows(network_map, friendly_names, unifi_networks)
+    network_rows, hidden_network_count = _build_network_rows(network_map, friendly_names, unifi_networks, vlan_names)
     host_rows, hidden_external_host_count = _build_host_rows(
-        network_map, friendly_names, manual_labels, identities, events, unifi_networks
+        network_map, friendly_names, manual_labels, identities, events, unifi_networks, vlan_names
     )
     top_flows, recent_examples = _build_flow_tables(
-        network_map, friendly_names, manual_labels, identities, events, unifi_networks
+        network_map, friendly_names, manual_labels, identities, events, unifi_networks, vlan_names
     )
 
     return render_template(
@@ -316,7 +322,7 @@ def traffic_sections():
         direction_counts=direction_counts,
         network_rows=network_rows,
         hidden_network_count=hidden_network_count,
-        unifi_networks_active=bool(unifi_networks),
+        unifi_networks_active=bool(unifi_networks) or bool(vlan_names),
         host_rows=host_rows,
         hidden_external_host_count=hidden_external_host_count,
         top_flows=top_flows,
@@ -354,6 +360,7 @@ def host_detail():
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)
     unifi_networks = load_unifi_networks(conn)
+    vlan_names = load_unifi_vlan_names(conn)
     identities = _load_identities(conn)
     info = identities.get(ip) or {}
     is_gateway = ip in (unifi_gateway_ips(unifi_networks) | guessed_gateway_ips(network_map))
@@ -366,7 +373,7 @@ def host_detail():
     )
 
     def _label(other_ip: str) -> str:
-        return resolve_label(other_ip, network_map, friendly_names, manual_labels, unifi_networks)
+        return resolve_label(other_ip, network_map, friendly_names, manual_labels, unifi_networks, vlan_names)
 
     top_partners = [
         {
@@ -450,11 +457,12 @@ def host_detail_guess():
             network_map = build_network_map(conn, since=since)
             friendly_names = load_friendly_names(conn)
             unifi_networks = load_unifi_networks(conn)
+            vlan_names = load_unifi_vlan_names(conn)
             manual_labels = parse_network_labels(list(config.network_labels))
             identities = _load_identities(conn)
             top_partners = [
                 (
-                    resolve_label(partner_ip, network_map, friendly_names, manual_labels, unifi_networks),
+                    resolve_label(partner_ip, network_map, friendly_names, manual_labels, unifi_networks, vlan_names),
                     (identities.get(partner_ip) or {}).get("device_class"),
                     count,
                 )
