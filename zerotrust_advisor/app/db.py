@@ -24,6 +24,13 @@ CREATE TABLE IF NOT EXISTS events_firewall (
 );
 CREATE INDEX IF NOT EXISTS idx_events_firewall_ts ON events_firewall(ts);
 CREATE INDEX IF NOT EXISTS idx_events_firewall_pair ON events_firewall(src_ip, dst_ip);
+-- Single-column indexes so "WHERE src_ip=? OR dst_ip=?" (host-detail,
+-- per-host lookups) can use SQLite's OR-optimization (a UNION of two
+-- indexed scans). The composite pair index above can't serve the dst_ip
+-- side of that query at all, which forced a full table scan on tables
+-- with millions of rows -- the real cause of ~10s host-detail loads.
+CREATE INDEX IF NOT EXISTS idx_events_firewall_src ON events_firewall(src_ip);
+CREATE INDEX IF NOT EXISTS idx_events_firewall_dst ON events_firewall(dst_ip);
 
 CREATE TABLE IF NOT EXISTS events_flow (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +48,8 @@ CREATE TABLE IF NOT EXISTS events_flow (
 );
 CREATE INDEX IF NOT EXISTS idx_events_flow_ts ON events_flow(ts_start);
 CREATE INDEX IF NOT EXISTS idx_events_flow_pair ON events_flow(src_ip, dst_ip);
+CREATE INDEX IF NOT EXISTS idx_events_flow_src ON events_flow(src_ip);
+CREATE INDEX IF NOT EXISTS idx_events_flow_dst ON events_flow(dst_ip);
 
 -- device_key is the MAC when known, otherwise the IP — a stable local
 -- handle for "the same device", independent of the pseudonym token used

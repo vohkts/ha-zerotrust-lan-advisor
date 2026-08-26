@@ -16,6 +16,10 @@ RECOMMENDATION_SCHEMA = {
             "properties": {
                 "plain_language_summary": {"type": "string"},
                 "likely_purpose": {"type": "string"},
+                "action": {"type": "string", "enum": ["allow", "block"]},
+                "rule_source": {"type": "string"},
+                "rule_destination": {"type": "string"},
+                "rule_protocol_port": {"type": "string"},
                 "suggested_rule_scope": {"type": "string"},
                 "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                 "caveats": {"type": "array", "items": {"type": "string"}},
@@ -23,6 +27,10 @@ RECOMMENDATION_SCHEMA = {
             "required": [
                 "plain_language_summary",
                 "likely_purpose",
+                "action",
+                "rule_source",
+                "rule_destination",
+                "rule_protocol_port",
                 "suggested_rule_scope",
                 "confidence",
                 "caveats",
@@ -33,15 +41,41 @@ RECOMMENDATION_SCHEMA = {
 }
 
 _SYSTEM_PROMPT = (
-    "You help a home network owner move toward a zero-trust firewall. You are given one "
-    "recurring, pseudonymized traffic pattern observed between two device classes on two "
-    "networks. Explain in plain language what it's most likely for, and suggest the narrowest "
-    "firewall rule that would cover it — scoped to the specific networks, protocol and port "
-    "given, never a broad allow. You are never told real device names, IPs or MACs, only "
-    "device classes and a confidence level for each — reflect that uncertainty in your answer "
-    "rather than stating a guess as fact. If you don't recognize the pattern, say so honestly "
-    "instead of inventing a plausible-sounding purpose."
+    "You help a home network owner move toward a zero-trust firewall: default-deny, with narrow, "
+    "explicit allow rules for the traffic they actually rely on. You are given one recurring, "
+    "pseudonymized traffic pattern this add-on has actually observed happening, repeatedly, over "
+    "multiple days — it is not hypothetical.\n\n"
+    "Your job is almost always to recommend the narrow ALLOW rule that legitimizes it, not to "
+    "block it: a pattern that recurs across many distinct days, on one well-known port, is what "
+    "normal, wanted usage looks like — e.g. several devices repeatedly querying a DNS resolver on "
+    "udp/53 is exactly the kind of traffic zero-trust segmentation should explicitly allow, not "
+    "block. Only recommend 'block' when the evidence itself looks wrong for what it claims to be "
+    "(an unexpected port for the stated purpose, a destination that doesn't fit the device classes "
+    "involved) — and say exactly why in caveats. Recurring, expected-looking traffic is not, by "
+    "itself, a reason to block it.\n\n"
+    "Scope the rule as narrowly as the evidence actually supports, never as a broad convenience. "
+    "You will be told whether each side of the pattern is one single stable device or a population "
+    "of several — when a side is a single device, scope the rule to that device specifically "
+    "(referring to it by its class, e.g. 'the Pi-hole', never 'the whole network'); only scope to an "
+    "entire network when you're told multiple distinct devices are genuinely behind that side. Never "
+    "widen the port beyond the one actually observed, and never suggest 'any port' as a shortcut — "
+    "'allow this whole subnet to that whole subnet on any port' is exactly the kind of broad rule "
+    "zero-trust exists to avoid.\n\n"
+    "rule_source, rule_destination and rule_protocol_port must be short, concrete fragments (e.g. "
+    "'devices on the IoT network', 'the Pi-hole on the Home network', 'udp/53') that could be read "
+    "straight out of your own suggested_rule_scope sentence — they exist so the rule can be shown "
+    "as a compact chip alongside the explanation. You are never told real device names, IPs or "
+    "MACs, only device classes, a confidence level for each, and how many distinct devices are "
+    "behind each side — reflect any real uncertainty in your answer rather than stating a guess as "
+    "fact. If you don't recognize the pattern, say so honestly instead of inventing a "
+    "plausible-sounding purpose."
 )
+
+
+def _ip_count_phrase(count: int) -> str:
+    if count == 1:
+        return "a single, consistently the same device"
+    return f"{count} different devices seen"
 
 
 def build_recommendation_messages(
@@ -55,9 +89,9 @@ def build_recommendation_messages(
 
     lines = [
         f"Source: {pattern.src_class} (classification confidence: {src_confidence}) "
-        f"on network '{pattern.src_net_label}'",
+        f"on network '{pattern.src_net_label}' — {_ip_count_phrase(pattern.src_ip_count)}.",
         f"Destination: {pattern.dst_class} (classification confidence: {dst_confidence}) "
-        f"on network '{pattern.dst_net_label}'",
+        f"on network '{pattern.dst_net_label}' — {_ip_count_phrase(pattern.dst_ip_count)}.",
         f"Protocol/port: {proto_name}/{port_desc}",
         f"Observed on {pattern.distinct_days} distinct days, {pattern.occurrence_count} times total.",
         f"Currently blocked by an existing rule: {'yes' if pattern.saw_blocked else 'no'}.",

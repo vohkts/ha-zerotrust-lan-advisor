@@ -12,6 +12,7 @@ import json
 import logging
 import sqlite3
 import time
+from collections import Counter
 from dataclasses import dataclass
 
 from app.analysis.grouping import GroupableEvent, group_candidate_patterns
@@ -22,23 +23,71 @@ from app.analysis.setup_recommendations import generate_setup_recommendations
 from app.config import Config, read_secret
 from app.llm.client import LLMError, chat_completion
 from app.llm.prompts import RECOMMENDATION_SCHEMA, build_recommendation_messages
-from app.sanitize.classify import Classification, classify
+from app.sanitize.classify import Classification, classify, classify_from_ports
+from app.sanitize.oui import lookup_vendor
 from app.supervisor import get_host_ip
 from app.unifi.checks import generate_unifi_setup_findings
 
 logger = logging.getLogger(__name__)
 
 _LOOKBACK_SECONDS = 30 * 86400
+_RECLASSIFY_ROW_LIMIT = 2000  # per host, per table -- bounded like every other per-host scan
 
 
 def _identity_for_ip(conn: sqlite3.Connection, ip: str, network_label: str) -> Classification:
     row = conn.execute(
-        "SELECT hostname, mac FROM identities WHERE ip = ? ORDER BY last_seen DESC LIMIT 1", (ip,)
+        "SELECT hostname, mac, device_class, class_confidence FROM identities "
+        "WHERE ip = ? ORDER BY last_seen DESC LIMIT 1",
+        (ip,),
     ).fetchone()
     if row is None:
         return classify(hostname=None, mac=None, network_label=network_label)
-    hostname, mac = row
+    hostname, mac, device_class, confidence = row
+    # A stored classification can be better than a blind hostname/mac
+    # recompute -- it may already reflect a port-based guess (see
+    # classify_from_ports below) that classify() has no way to reproduce
+    # from hostname/mac alone. Only trust it once it's actually resolved
+    # to something, though; "Unclassified*" is worth re-trying every time
+    # in case a fresher hostname has since shown up.
+    if device_class and confidence and not device_class.startswith("Unclassified"):
+        return Classification(device_class=device_class, confidence=confidence, vendor=lookup_vendor(mac) if mac else None)
     return classify(hostname=hostname, mac=mac, network_label=network_label)
+
+
+def _reclassify_unclassified_hosts(conn: sqlite3.Connection, since: float) -> int:
+    """A deterministic, LLM-free pass: for every host still Unclassified
+    from hostname/vendor alone, see if its own traffic settles the
+    question (see classify_from_ports) -- e.g. a host with no helpful
+    hostname that mostly answers connections on 8086/tcp is InfluxDB
+    whether or not anything ever named it that. Persisted into identities
+    (guarded against being immediately overwritten again -- see the
+    upsert changes in mdns_listener.py/unifi/sync.py) so it sticks, and so
+    both the Hosts table and _identity_for_ip above pick it up."""
+    rows = conn.execute(
+        "SELECT ip, vendor FROM identities WHERE ip IS NOT NULL "
+        "AND (device_class IS NULL OR device_class LIKE 'Unclassified%')"
+    ).fetchall()
+    updated = 0
+    for ip, vendor in rows:
+        port_counts: Counter = Counter()
+        for table, ts_col in (("events_firewall", "ts"), ("events_flow", "ts_start")):
+            port_rows = conn.execute(
+                f"SELECT dst_port FROM {table} WHERE dst_ip = ? AND {ts_col} >= ? "
+                "AND dst_port IS NOT NULL LIMIT ?",
+                (ip, since, _RECLASSIFY_ROW_LIMIT),
+            ).fetchall()
+            port_counts.update(p for (p,) in port_rows)
+        guess = classify_from_ports(dict(port_counts), vendor=vendor)
+        if guess is None:
+            continue
+        conn.execute(
+            "UPDATE identities SET device_class = ?, class_confidence = ? WHERE ip = ?",
+            (guess.device_class, guess.confidence, ip),
+        )
+        updated += 1
+    if updated:
+        conn.commit()
+    return updated
 
 
 def _load_events(
@@ -80,6 +129,8 @@ def _load_events(
             GroupableEvent(
                 event_id=event_id,
                 ts=ts,
+                src_ip=src_ip,
+                dst_ip=dst_ip,
                 src_class=_identity_for_ip(conn, src_ip, src_label).device_class,
                 dst_class=_identity_for_ip(conn, dst_ip, dst_label).device_class,
                 src_net_label=src_label,
@@ -159,6 +210,7 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     setup_written += generate_unifi_setup_findings(conn, now=now)
 
     since = now - _LOOKBACK_SECONDS
+    _reclassify_unclassified_hosts(conn, since)
     manual_labels = parse_network_labels(list(config.network_labels))
     network_map = build_network_map(conn, since=since)
     friendly_names = load_friendly_names(conn)

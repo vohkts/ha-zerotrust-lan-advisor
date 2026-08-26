@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 class GroupableEvent:
     event_id: int
     ts: float
+    src_ip: str
+    dst_ip: str
     src_class: str
     dst_class: str
     src_net_label: str
@@ -41,6 +43,16 @@ class CandidatePattern:
     saw_blocked: bool
     saw_allowed: bool
     sample_event_ids: list[int]
+    # Real IPs never leave this module (see engine.py's pseudonymization
+    # boundary) -- only how *many* distinct ones were behind each side.
+    # That's enough for the LLM to tell "one stable device" from "a
+    # population of them" without ever being told which. Reported live: a
+    # recommendation phrased "allow this whole subnet to that whole
+    # subnet" when in fact the destination was one single, specific device
+    # (a Pi-hole) the whole time -- indistinguishable to the LLM without
+    # this signal, since src_class/dst_class alone say nothing about count.
+    src_ip_count: int
+    dst_ip_count: int
 
 
 def _day_key(ts: float) -> str:
@@ -94,6 +106,8 @@ def group_candidate_patterns(
                 saw_blocked=any(e.was_blocked for e in bucket),
                 saw_allowed=any(not e.was_blocked for e in bucket),
                 sample_event_ids=[e.event_id for e in bucket[:max_samples]],
+                src_ip_count=len({e.src_ip for e in bucket}),
+                dst_ip_count=len({e.dst_ip for e in bucket}),
             )
         )
 

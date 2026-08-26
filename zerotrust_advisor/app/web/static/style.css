@@ -235,6 +235,14 @@ input.table-filter {
 .recommendation dl { font-size: 0.9rem; }
 .recommendation dt { font-weight: 600; margin-top: 0.5rem; }
 .recommendation dd { margin: 0.2rem 0 0; color: var(--muted); }
+.rule-chip { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0 0; }
+.rule-chip code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.85rem;
+}
 .actions { margin-top: 0.75rem; }
 .actions button {
   margin-right: 0.5rem;

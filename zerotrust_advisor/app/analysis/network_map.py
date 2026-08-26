@@ -213,6 +213,23 @@ def unifi_network_for_ip(ip: str, unifi_networks: list[UnifiNetworkInfo]) -> str
     return None
 
 
+def unifi_gateway_ips(unifi_networks: list[UnifiNetworkInfo]) -> set[str]:
+    """The Integration API exposes a network's subnet but no explicit
+    gateway-IP field -- so this leans on UniFi's own convention (true for
+    the overwhelming majority of real deployments, including every VLAN a
+    UniFi controller itself provisions): the gateway is the first usable
+    host address in the subnet. Every VLAN has one, and none of them are
+    "a device on your network" in any inventory sense -- reported live as
+    "every subnet's .1 shows up as an unknown device"."""
+    ips: set[str] = set()
+    for net in unifi_networks:
+        try:
+            ips.add(str(next(net.network.hosts())))
+        except (StopIteration, ValueError):
+            continue
+    return ips
+
+
 def resolve_label(
     ip: str,
     network_map: NetworkMap,

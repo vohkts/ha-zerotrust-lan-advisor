@@ -78,3 +78,34 @@ def test_polling_finds_nothing_new_keeps_the_same_max_id(tmp_path, monkeypatch):
     body = client.get("/live/events?since_id=5").get_json()
     assert body["events"] == []
     assert body["max_id"] == 5
+
+
+def test_own_receiver_traffic_is_filtered_but_cursor_still_advances(tmp_path, monkeypatch):
+    """A gateway forwarding its own syslog to this add-on's receiver port
+    shouldn't dominate Live View -- and even when an entire poll window is
+    nothing but that noise, since_id must still move past it, or the next
+    poll re-fetches the same noisy rows forever."""
+    from app.db import connect
+    from app.web import routes_live
+
+    client = _client(tmp_path, monkeypatch)
+    host_ip = "192.168.0.68"
+    monkeypatch.setattr(routes_live, "get_host_ip", lambda: host_ip)
+    syslog_port = client.application.config["ZTA_CONFIG"].syslog_port
+
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        _insert_event(conn, "192.168.0.1", host_ip, dst_port=syslog_port)
+        conn.commit()
+
+    bootstrap = client.get("/live/events").get_json()
+    cursor = bootstrap["max_id"]
+
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        _insert_event(conn, "192.168.0.1", host_ip, dst_port=syslog_port)
+        conn.commit()
+
+    body = client.get(f"/live/events?since_id={cursor}").get_json()
+    assert body["events"] == []
+    assert body["max_id"] == cursor + 1

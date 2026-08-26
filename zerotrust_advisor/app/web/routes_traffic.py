@@ -33,6 +33,7 @@ from app.analysis.network_map import (
     load_unifi_networks,
     resolve_label,
     set_friendly_name,
+    unifi_gateway_ips,
     unifi_network_for_ip,
 )
 from app.db import connect
@@ -220,17 +221,19 @@ def _build_host_rows(network_map, friendly_names, manual_labels, identities, eve
             last_seen.setdefault(ip, e.ts)
             first_seen[ip] = e.ts  # overwritten every time; final value is the oldest in-window
 
+    gateway_ips = unifi_gateway_ips(unifi_networks)
     rows = []
     for ip, count in counts.most_common(_TOP_HOSTS_LIMIT):
         info = identities.get(ip) or {}
+        is_gateway = ip in gateway_ips
         rows.append(
             {
                 "ip": ip,
-                "name": info.get("hostname"),
+                "name": info.get("hostname") or ("Network gateway" if is_gateway else None),
                 "network": resolve_label(ip, network_map, friendly_names, manual_labels, unifi_networks),
-                "device_class": info.get("device_class") or "Unclassified",
+                "device_class": info.get("device_class") or ("Network gateway" if is_gateway else "Unclassified"),
                 "vendor": info.get("vendor"),
-                "confidence": info.get("confidence") or "low",
+                "confidence": info.get("confidence") or ("high" if is_gateway else "low"),
                 "events": count,
                 "first_seen": first_seen.get(ip),
                 "last_seen": last_seen.get(ip),
@@ -270,6 +273,18 @@ def _build_flow_tables(network_map, friendly_names, manual_labels, identities, e
 
 @traffic_bp.route("/traffic")
 def traffic_page():
+    """Just the page shell, on purpose: every real query this screen needs
+    (network map, host rows, flow tables) lives behind /traffic/sections
+    instead, fetched async by static/app.js once the shell has already
+    painted. Reported live as a 1-2s (later 5-6s, as the DB grew) delay
+    before anything appeared at all -- with everything computed inline
+    here, the whole page waited on the slowest query before the browser
+    had anything to render."""
+    return render_template("traffic.html")
+
+
+@traffic_bp.route("/traffic/sections")
+def traffic_sections():
     config = current_app.config["ZTA_CONFIG"]
     conn = get_db()
     now = time.time()
@@ -293,7 +308,7 @@ def traffic_page():
     )
 
     return render_template(
-        "traffic.html",
+        "traffic_sections.html",
         total_events=_count_events(conn, since),
         sampled_events=len(events),
         hidden_console_count=hidden_console_count,
@@ -340,6 +355,7 @@ def host_detail():
     unifi_networks = load_unifi_networks(conn)
     identities = _load_identities(conn)
     info = identities.get(ip) or {}
+    is_gateway = ip in unifi_gateway_ips(unifi_networks)
 
     console_host = config.unifi_host if config.ignore_unifi_console_traffic else None
     detail = load_host_detail(
@@ -373,10 +389,10 @@ def host_detail():
     return jsonify(
         {
             "ip": ip,
-            "name": info.get("hostname"),
-            "device_class": info.get("device_class") or "Unclassified device",
+            "name": info.get("hostname") or ("Network gateway" if is_gateway else None),
+            "device_class": info.get("device_class") or ("Network gateway" if is_gateway else "Unclassified device"),
             "vendor": info.get("vendor"),
-            "confidence": info.get("confidence") or "low",
+            "confidence": info.get("confidence") or ("high" if is_gateway else "low"),
             "network": _label(ip),
             "event_count": detail.event_count,
             "event_count_capped": detail.event_count_capped,

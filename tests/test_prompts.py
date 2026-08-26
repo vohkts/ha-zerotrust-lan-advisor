@@ -21,6 +21,8 @@ PATTERN = CandidatePattern(
     saw_blocked=True,
     saw_allowed=False,
     sample_event_ids=[1, 2, 3],
+    src_ip_count=3,
+    dst_ip_count=1,
 )
 
 
@@ -33,6 +35,20 @@ def test_messages_include_pseudonymized_context_only():
     assert "AirPlay" in user_text  # known-port hint for TCP/7000
     # No raw IPs/MACs should ever appear — the pattern itself never carries them.
     assert "192.168" not in user_text
+
+
+def test_messages_convey_whether_a_side_is_one_device_or_several():
+    messages = build_recommendation_messages(PATTERN, src_confidence="high", dst_confidence="medium")
+    user_text = messages[1]["content"]
+    assert "3 different devices" in user_text
+    assert "a single, consistently the same device" in user_text
+
+
+def test_system_prompt_frames_allow_as_the_default_and_asks_for_structured_fields():
+    messages = build_recommendation_messages(PATTERN, src_confidence="high", dst_confidence="medium")
+    system_text = messages[0]["content"]
+    assert "ALLOW" in system_text
+    assert "rule_source" in system_text and "rule_destination" in system_text and "rule_protocol_port" in system_text
 
 
 def test_device_guess_messages_include_evidence_and_no_identity():

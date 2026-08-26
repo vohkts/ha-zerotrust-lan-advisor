@@ -13,10 +13,12 @@ def _ts(day_offset: int, hour: int = 12) -> float:
     return (DAY0 + timedelta(days=day_offset, hours=hour)).timestamp()
 
 
-def _event(event_id, day_offset, blocked=True, dst_port=7000):
+def _event(event_id, day_offset, blocked=True, dst_port=7000, src_ip="192.168.10.5", dst_ip="192.168.20.9"):
     return GroupableEvent(
         event_id=event_id,
         ts=_ts(day_offset),
+        src_ip=src_ip,
+        dst_ip=dst_ip,
         src_class="Apple HomePod / smart speaker",
         dst_class="iPhone",
         src_net_label="IoT",
@@ -70,3 +72,20 @@ def test_sample_event_ids_are_capped():
     events = [_event(i, day_offset=i % 5) for i in range(20)]
     patterns = group_candidate_patterns(events, min_recurring_days=1, max_samples=3)
     assert len(patterns[0].sample_event_ids) == 3
+
+
+def test_ip_counts_distinguish_one_stable_device_from_a_population():
+    # Real gap reported live: a recommendation phrased "allow this whole
+    # subnet to that whole subnet" when the destination was actually one
+    # single device (a Pi-hole) the whole time -- src_class/dst_class alone
+    # can't tell the LLM that, since pattern grouping is class+network
+    # keyed, not per-IP.
+    events = [
+        _event(1, day_offset=0, src_ip="192.168.10.5", dst_ip="192.168.20.9"),
+        _event(2, day_offset=1, src_ip="192.168.10.6", dst_ip="192.168.20.9"),
+        _event(3, day_offset=2, src_ip="192.168.10.7", dst_ip="192.168.20.9"),
+    ]
+    patterns = group_candidate_patterns(events, min_recurring_days=3)
+    assert len(patterns) == 1
+    assert patterns[0].src_ip_count == 3
+    assert patterns[0].dst_ip_count == 1

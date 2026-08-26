@@ -54,7 +54,19 @@ def _upsert_identity_from_unifi_client(conn: sqlite3.Connection, unifi_client, n
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(device_key) DO UPDATE SET
                ip=excluded.ip, mac=excluded.mac, hostname=excluded.hostname, vendor=excluded.vendor,
-               device_class=excluded.device_class, class_confidence=excluded.class_confidence,
+               -- Never let a re-sync downgrade a better classification back
+               -- to a worse one (e.g. the analysis pass's port-based guess,
+               -- see classify_from_ports -- a routine resync carries no new
+               -- signal and would otherwise stomp it back to Unclassified
+               -- every cycle).
+               device_class = CASE WHEN
+                   COALESCE(CASE class_confidence WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END, 0)
+                   > COALESCE(CASE excluded.class_confidence WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END, 0)
+                 THEN device_class ELSE excluded.device_class END,
+               class_confidence = CASE WHEN
+                   COALESCE(CASE class_confidence WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END, 0)
+                   > COALESCE(CASE excluded.class_confidence WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END, 0)
+                 THEN class_confidence ELSE excluded.class_confidence END,
                last_seen=excluded.last_seen""",
         (
             device_key,

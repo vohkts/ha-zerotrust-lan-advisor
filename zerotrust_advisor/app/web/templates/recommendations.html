@@ -20,15 +20,29 @@
   {% if not zero_trust_items %}
     <p>Nothing yet. Recommendations show up here once the same traffic pattern has recurred
        across enough distinct days — see the Setup screen to check what's being collected.</p>
-  {% endif %}
+  {% else %}
+  <input type="search" class="table-filter" data-filter-for="zero-trust-list"
+         placeholder="Filter by device, network, port, action…">
+  <div class="recommendation-list" id="zero-trust-list">
   {% for item in zero_trust_items %}
   <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
     <header>
       <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
+      {% if item.structured.action %}
+      <span class="chip {{ 'chip-danger' if item.structured.action == 'block' else 'chip-ok' }}">{{ item.structured.action }}</span>
+      {% endif %}
       <span class="status">{{ item.status }}</span>
       <time>{{ item.created_at | fmt_time }}</time>
     </header>
     <p class="summary">{{ item.summary }}</p>
+    {% if item.structured.rule_source %}
+    <p class="rule-chip">
+      <code>{{ item.structured.rule_source }}</code>
+      <span aria-hidden="true">&rarr;</span>
+      <code>{{ item.structured.rule_destination }}</code>
+      <code>{{ item.structured.rule_protocol_port }}</code>
+    </p>
+    {% endif %}
     <dl>
       <dt>Likely purpose</dt><dd>{{ item.structured.likely_purpose }}</dd>
       <dt>Suggested rule scope</dt><dd>{{ item.structured.suggested_rule_scope }}</dd>
@@ -45,6 +59,8 @@
     {% endif %}
   </article>
   {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 <div class="tab-panel" data-tab-panel="setup" hidden>
@@ -53,7 +69,9 @@
   {% if not setup_items %}
     <p>Nothing found yet. Also check the Setup screen's live coverage checks — those catch gaps
        (e.g. "no NetFlow data yet") that don't get a persisted entry here.</p>
-  {% endif %}
+  {% else %}
+  <input type="search" class="table-filter" data-filter-for="setup-list" placeholder="Filter…">
+  <div class="recommendation-list" id="setup-list">
   {% for item in setup_items %}
   <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}">
     <header>
@@ -73,5 +91,7 @@
     {% endif %}
   </article>
   {% endfor %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

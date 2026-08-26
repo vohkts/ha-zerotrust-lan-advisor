@@ -223,6 +223,71 @@ def test_stale_own_receiver_recommendation_is_purged_on_next_pass(tmp_path, monk
     assert "IoT|Home|Unclassified|Unclassified|17|514" in signatures
 
 
+def test_reclassify_unclassified_hosts_uses_dominant_service_port(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    now = time.time()
+    conn.execute(
+        "INSERT INTO identities (device_key, ip, device_class, class_confidence, first_seen, last_seen) "
+        "VALUES ('192.168.10.9', '192.168.10.9', 'Unclassified device', 'low', ?, ?)",
+        (now, now),
+    )
+    for i in range(10):
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, src_port, dst_port, proto, action, received_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (now - i * 60, "192.168.10.5", "192.168.10.9", 51000, 8086, 6, "ALLOW", now),
+        )
+    conn.commit()
+
+    updated = engine._reclassify_unclassified_hosts(conn, since=now - 86400)
+    assert updated == 1
+    device_class, confidence = conn.execute(
+        "SELECT device_class, class_confidence FROM identities WHERE ip = '192.168.10.9'"
+    ).fetchone()
+    assert device_class == "InfluxDB (metrics database)"
+    assert confidence == "medium"
+
+
+def test_reclassification_survives_a_later_mdns_resync(tmp_path, monkeypatch):
+    # The port-based guess must not get silently stomped back to
+    # Unclassified the next time mdns_listener/unifi sync re-upserts this
+    # same device with no new (or worse) signal.
+    from app.mdns_listener import _upsert_identity
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    now = time.time()
+    conn.execute(
+        "INSERT INTO identities (device_key, ip, device_class, class_confidence, first_seen, last_seen) "
+        "VALUES ('AA:BB:CC:00:00:01', '192.168.10.9', 'InfluxDB (metrics database)', 'medium', ?, ?)",
+        (now, now),
+    )
+    conn.commit()
+
+    _upsert_identity(conn, "192.168.10.9", "generic-hostname", "AA:BB:CC:00:00:01", now)
+    conn.commit()
+
+    device_class, confidence = conn.execute(
+        "SELECT device_class, class_confidence FROM identities WHERE device_key = 'AA:BB:CC:00:00:01'"
+    ).fetchone()
+    assert device_class == "InfluxDB (metrics database)"
+    assert confidence == "medium"
+
+
+def test_identity_for_ip_prefers_a_stored_non_unclassified_class(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    now = time.time()
+    conn.execute(
+        "INSERT INTO identities (device_key, ip, device_class, class_confidence, first_seen, last_seen) "
+        "VALUES ('192.168.10.9', '192.168.10.9', 'InfluxDB (metrics database)', 'medium', ?, ?)",
+        (now, now),
+    )
+    conn.commit()
+
+    result = engine._identity_for_ip(conn, "192.168.10.9", "IoT")
+    assert result.device_class == "InfluxDB (metrics database)"
+    assert result.confidence == "medium"
+
+
 def test_llm_failure_is_skipped_not_raised(tmp_path, monkeypatch):
     from app.llm.client import LLMError
 

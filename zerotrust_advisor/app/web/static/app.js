@@ -259,10 +259,110 @@ function setupTable(table) {
 // stop reflecting anything appended after that snapshot.
 document.querySelectorAll("table.status-table:not([data-no-paginate])").forEach(setupTable);
 
-document.querySelectorAll("[data-filter-for]").forEach((input) => {
-  const table = document.getElementById(input.dataset.filterFor);
-  if (!table || !table._ztaSetFilter) return;
-  input.addEventListener("input", () => table._ztaSetFilter(input.value));
+// Same pagination/filter behavior as setupTable above, but for a plain
+// container of card-like items (Recommendations) rather than <tr> rows in
+// a <tbody> — the two can't share one function since a table row and a
+// standalone element paginate/hide differently, but everything else about
+// them (page math, controls, the query/page closure state) is identical.
+function setupCardList(container) {
+  const allItems = Array.from(container.children);
+  if (allItems.length === 0) return;
+
+  const controls = document.createElement("div");
+  controls.className = "table-pagination";
+  container.insertAdjacentElement("afterend", controls);
+
+  let query = "";
+  let page = 0;
+
+  function render() {
+    const matching = query ? allItems.filter((item) => item.textContent.toLowerCase().includes(query)) : allItems;
+    const totalPages = Math.max(1, Math.ceil(matching.length / TABLE_PAGE_SIZE));
+    if (page >= totalPages) page = 0;
+    const start = page * TABLE_PAGE_SIZE;
+    const visible = new Set(matching.slice(start, start + TABLE_PAGE_SIZE));
+    for (const item of allItems) item.hidden = !visible.has(item);
+
+    const needsControls = matching.length > TABLE_PAGE_SIZE || (query && matching.length !== allItems.length);
+    if (!needsControls) {
+      controls.replaceChildren();
+      return;
+    }
+
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "Previous";
+    prev.disabled = page === 0;
+    prev.addEventListener("click", () => {
+      page -= 1;
+      render();
+    });
+
+    const status = document.createElement("span");
+    status.className = "hint";
+    status.textContent = query
+      ? `Page ${page + 1} of ${totalPages} (${matching.length} of ${allItems.length} match)`
+      : `Page ${page + 1} of ${totalPages} (${allItems.length} total)`;
+
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = "Next";
+    next.disabled = page === totalPages - 1;
+    next.addEventListener("click", () => {
+      page += 1;
+      render();
+    });
+
+    controls.replaceChildren(prev, status, next);
+  }
+
+  container._ztaSetFilter = (q) => {
+    query = q.trim().toLowerCase();
+    page = 0;
+    render();
+  };
+
+  render();
+}
+
+document.querySelectorAll(".recommendation-list").forEach(setupCardList);
+
+function wireFilterInputs(root) {
+  root.querySelectorAll("[data-filter-for]").forEach((input) => {
+    const target = document.getElementById(input.dataset.filterFor);
+    if (!target || !target._ztaSetFilter) return;
+    input.addEventListener("input", () => target._ztaSetFilter(input.value));
+  });
+}
+
+wireFilterInputs(document);
+
+// A container with data-async-load="<relative-url>" fetches that URL — a
+// server-rendered, Jinja-autoescaped HTML fragment, exactly as trusted as
+// if the same markup had been part of the original page response, which
+// is what it used to be — and swaps it in once ready, instead of making
+// the whole page wait on whatever's behind it (the Traffic page's
+// heaviest queries, in particular: reported live at 1-2s, later 5-6s as
+// the database grew). Delegated click handlers
+// elsewhere in this file (data-action buttons, host/policy detail expand)
+// are bound to `document` and work on the new content automatically;
+// pagination/filtering isn't delegated and has to be (re-)initialized
+// explicitly here.
+document.querySelectorAll("[data-async-load]").forEach((container) => {
+  fetch(container.dataset.asyncLoad)
+    .then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    })
+    .then((html) => {
+      container.innerHTML = html;
+      container.querySelectorAll("table.status-table:not([data-no-paginate])").forEach(setupTable);
+      container.querySelectorAll(".recommendation-list").forEach(setupCardList);
+      wireFilterInputs(container);
+    })
+    .catch(() => {
+      container.textContent = "Failed to load — try refreshing the page.";
+    });
 });
 
 // Live View — polls for new firewall events and appends them to a

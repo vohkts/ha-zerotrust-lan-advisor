@@ -170,6 +170,23 @@ def test_host_rows_excludes_public_ips_and_counts_them_hidden():
     assert hidden == 1
 
 
+def test_host_rows_label_a_subnet_gateway_instead_of_unclassified():
+    # Reported live: every subnet's own gateway (e.g. 192.168.10.1) showed
+    # up as an "unknown device" -- it's never a UniFi client, so it's never
+    # in `identities`, but it's real, expected infrastructure, not a
+    # mystery host.
+    unifi_networks = [UnifiNetworkInfo(name="IoT", network=ipaddress.ip_network("192.168.10.0/24"))]
+    events = [
+        *_events(),
+        _Event(ts=150, src_ip="192.168.10.1", dst_ip="192.168.10.5", proto=6, dst_port=443),
+    ]
+    rows, _hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, events, unifi_networks)
+    row = next(r for r in rows if r["ip"] == "192.168.10.1")
+    assert row["device_class"] == "Network gateway"
+    assert row["confidence"] == "high"
+    assert row["name"] == "Network gateway"
+
+
 def test_top_flows_aggregates_by_full_key_and_counts_occurrences():
     top_flows, _ = _build_flow_tables(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, _events())
     assert len(top_flows) == 2  # two distinct (src,dst,proto,port) combinations

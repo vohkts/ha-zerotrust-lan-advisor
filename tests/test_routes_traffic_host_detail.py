@@ -34,10 +34,51 @@ def _seed_events(app):
         conn.commit()
 
 
+def test_traffic_page_is_just_a_shell_with_an_async_load_hook(tmp_path, monkeypatch):
+    # Reported live as a slow (1-2s, later 5-6s) page open -- the fix moves
+    # every real query behind /traffic/sections, fetched async, so the
+    # shell itself has nothing left to wait on.
+    client = _client(tmp_path, monkeypatch)
+    resp = client.get("/traffic")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'data-async-load="traffic/sections"' in body
+    assert "Networks (auto-discovered" not in body  # the heavy content lives in the fragment, not here
+
+
+def test_traffic_sections_fragment_contains_the_real_content(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _seed_events(client.application)
+
+    resp = client.get("/traffic/sections")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Networks (auto-discovered" in body
+    assert "192.168.10.5" in body
+
+
 def test_host_detail_requires_ip(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     resp = client.get("/traffic/host-detail")
     assert resp.status_code == 400
+
+
+def test_host_detail_labels_a_subnet_gateway(tmp_path, monkeypatch):
+    from app.db import connect
+
+    client = _client(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            "INSERT INTO unifi_networks (id, name, subnet, raw_json, fetched_at) "
+            "VALUES ('net1', 'IoT', '192.168.10.0/24', '{}', ?)",
+            (NOW,),
+        )
+        conn.commit()
+
+    body = client.get("/traffic/host-detail?ip=192.168.10.1").get_json()
+    assert body["device_class"] == "Network gateway"
+    assert body["confidence"] == "high"
 
 
 def test_host_detail_returns_stats_for_a_known_ip(tmp_path, monkeypatch):

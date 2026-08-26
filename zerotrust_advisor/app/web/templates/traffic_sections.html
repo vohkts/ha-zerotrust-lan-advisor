@@ -1,0 +1,180 @@
+{% macro endpoint(ip, name, device_class, network) %}{{ ip }}{% if name %} <strong>({{ name }})</strong>{% elif device_class %} <strong>({{ device_class }})</strong>{% endif %} <span class="hint">[{{ network }}]</span>{% endmacro %}
+<p class="hint">Last {{ window_days }} days, {{ total_events }} events
+   {% if total_events > sampled_events %}(the tables below are built from the most recent {{ sampled_events }}, for performance){% endif %}.
+   Real local IPs/hostnames — this page never leaves the box, so nothing here is pseudonymized.
+   {% if hidden_console_count %}{{ hidden_console_count }} events to/from the UniFi console itself were excluded
+   as infrastructure noise (Settings &rarr; "Ignore traffic to/from the UniFi console itself").{% endif %}</p>
+
+<section>
+  <h3>Are we seeing traffic between hosts on your own networks?</h3>
+  {% set ii = direction_counts.get('internal_internal', 0) %}
+  {% set ie = direction_counts.get('internal_external', 0) %}
+  {% set ee = direction_counts.get('external_external', 0) %}
+  <div class="direction-stats">
+    <div class="stat">
+      <span class="stat-value">{{ ii }}</span>
+      <span class="stat-label">internal &harr; internal<br>(LAN-to-LAN)</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">{{ ie }}</span>
+      <span class="stat-label">internal &harr; external<br>(WAN-crossing)</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">{{ ee }}</span>
+      <span class="stat-label">external &harr; external<br>(router/ISP or IPv6)</span>
+    </div>
+  </div>
+  {% if total_events == 0 %}
+    <p class="hint">No events yet — nothing to assess.</p>
+  {% elif ii == 0 %}
+    <p class="chip chip-warn">Only WAN-crossing traffic confirmed so far — no LAN-to-LAN traffic seen yet.
+       See the Setup screen for what that usually means.</p>
+  {% else %}
+    <p class="chip chip-ok">Confirmed: this add-on is seeing real traffic between devices on your own networks,
+       not just incoming/outgoing WAN traffic.</p>
+  {% endif %}
+  {% if ee > 0 %}
+    <p class="hint">"External &harr; external" is usually mundane, not a red flag: your router's own WAN IP
+       making DNS queries to your ISP's resolvers looks this way (both sides are public IPs), and IPv6 makes
+       it more common still — home ISPs often hand out globally-routable IPv6 addresses directly, so your own
+       device's IPv6 address is legitimately "public" even though it's yours. Occasionally it's unsolicited
+       traffic hitting your WAN interface, which is normal background internet noise on any public IP. Check
+       the flow tables below if you want to see exactly what's in this bucket.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Networks (auto-discovered guesses)</h3>
+  <p class="hint">Discovered from traffic itself — no manual subnet/VLAN entry required. The range shown is
+     a guess (there's no way to confirm the real subnet mask from traffic alone) — a good one, since real
+     networks are almost always /24s, but a guess, marked as such until you name it yourself.
+     Which hosts belong together is a separate, more reliable signal: grouped from a real firewall interface
+     (<span class="chip chip-ok">confirmed</span>) beats grouped only by IP proximity
+     (<span class="chip chip-warn">address-based</span>), which is the fallback for flow-only devices.
+     Single-host address-based guesses (almost always a random external IP, not a real local network) are
+     hidden automatically.
+     {% if unifi_networks_active %}Once the UniFi integration confirms a range's real network, it's shown
+     under its real name everywhere below instead of appearing here as a guess — see the
+     <a href="network">Network</a> screen for the confirmed list.{% endif %}
+     {% if hidden_network_count %}({{ hidden_network_count }} hidden right now){% endif %}</p>
+  {% if not network_rows %}
+    <p class="hint">No unconfirmed guesses right now{% if hidden_network_count %} — every discovered network is either UniFi-confirmed or not worth a guess{% endif %}.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Network</th><th>Grouping</th><th>Hosts</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {% for n in network_rows %}
+      <tr data-network-key="{{ n.key }}">
+        <td>
+          <form class="rename-form">
+            <input type="hidden" name="discovery_key" value="{{ n.key }}">
+            <input type="text" name="friendly_name"
+                   value="{{ n.display_name if n.display_name not in (n.key, n.guessed_range) else '' }}"
+                   placeholder="{{ n.guessed_range or n.key }}">
+            <button type="button" data-action="traffic/rename" data-form-body="closest">Save</button>
+          </form>
+          {% if n.display_name == n.guessed_range %}
+            <span class="chip chip-warn">guess</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if n.kind == 'interface' %}<span class="chip chip-ok">confirmed</span>
+          {% else %}<span class="chip chip-warn">address-based</span>{% endif %}
+          <span class="hint">({{ n.key }})</span>
+        </td>
+        <td>{{ n.hosts }}</td>
+        <td>{{ n.events }}</td>
+        <td>{{ n.first_seen | fmt_time }}</td>
+        <td>{{ n.last_seen | fmt_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Hosts (top {{ host_rows | length }})</h3>
+  <p class="hint">Devices on your own networks only — public IPs your network merely talked to (like a DNS
+     resolver) aren't "hosts" here and are excluded
+     {% if hidden_external_host_count %}({{ hidden_external_host_count }} excluded right now){% endif %}.
+     <strong>Class</strong> is this add-on's best guess at device type, from the device's hostname (via mDNS
+     or, once configured, its name in UniFi) and its network hardware vendor (from its MAC address) — in that
+     order of trust. The number in parenthesis is confidence: <strong>high</strong> (hostname matched a known
+     pattern, e.g. "iPhone"), <strong>medium</strong> (vendor-only, e.g. "Apple device (model unknown)"), or
+     <strong>low</strong> ("Unclassified" — neither signal was available or recognized). A device staying
+     Unclassified usually means neither its hostname nor its MAC vendor gave this add-on anything to go on.
+     Click a row to see its behavior in detail.</p>
+  {% if not host_rows %}
+    <p class="hint">No events yet.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Host</th><th>Network</th><th>Class</th><th>Events</th><th>First seen</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {% for h in host_rows %}
+      <tr class="expandable-row" data-host-ip="{{ h.ip }}">
+        <td>{{ h.ip }}{% if h.name %} <strong>({{ h.name }})</strong>{% endif %}</td>
+        <td>{{ h.network }}</td>
+        <td>
+          {{ h.device_class }}
+          {% if h.device_class == 'Unclassified device' and h.vendor %}
+            <span class="hint">— vendor: {{ h.vendor }}</span>
+          {% endif %}
+          <span class="hint">({{ h.confidence }})</span>
+        </td>
+        <td>{{ h.events }}</td>
+        <td>{{ h.first_seen | fmt_time }}</td>
+        <td>{{ h.last_seen | fmt_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Top flows by volume (top {{ top_flows | length }})</h3>
+  {% if not top_flows %}
+    <p class="hint">No events yet.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Source</th><th>Destination</th><th>Proto/Port</th><th>Count</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {% for f in top_flows %}
+      <tr>
+        <td>{{ endpoint(f.src, f.src_name, f.src_class, f.src_network) }}</td>
+        <td>{{ endpoint(f.dst, f.dst_name, f.dst_class, f.dst_network) }}</td>
+        <td>{{ f.proto }}/{{ f.port if f.port is not none else 'any' }}
+            {% if f.port_hint %}<span class="hint">— {{ f.port_hint }}</span>{% endif %}</td>
+        <td>{{ f.count }}</td>
+        <td>{{ f.last_seen | fmt_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h3>Recent unique flow examples (up to {{ recent_examples | length }})</h3>
+  <p class="hint">Deduplicated by source/destination/protocol/port, most recent first — not a raw log.</p>
+  {% if not recent_examples %}
+    <p class="hint">No events yet.</p>
+  {% else %}
+  <table class="status-table">
+    <thead><tr><th>Source</th><th>Destination</th><th>Proto/Port</th><th>Seen (in window)</th><th>Last seen</th></tr></thead>
+    <tbody>
+      {% for f in recent_examples %}
+      <tr>
+        <td>{{ endpoint(f.src, f.src_name, f.src_class, f.src_network) }}</td>
+        <td>{{ endpoint(f.dst, f.dst_name, f.dst_class, f.dst_network) }}</td>
+        <td>{{ f.proto }}/{{ f.port if f.port is not none else 'any' }}
+            {% if f.port_hint %}<span class="hint">— {{ f.port_hint }}</span>{% endif %}</td>
+        <td>{{ f.count }}</td>
+        <td>{{ f.last_seen | fmt_time }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
