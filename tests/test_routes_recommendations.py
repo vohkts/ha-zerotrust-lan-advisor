@@ -68,6 +68,42 @@ def test_run_now_returns_immediately_without_waiting_for_the_pass(tmp_path, monk
     assert finished.wait(timeout=2)  # background thread does eventually run it
 
 
+def test_zero_trust_card_shows_the_real_device_behind_the_pattern(tmp_path, monkeypatch):
+    # Reported live: the recommendation text alone ("a single,
+    # consistently the same device") gave no way to tell which real
+    # device that actually was -- this never leaves the box, same as the
+    # Traffic page, so there's no reason not to show it.
+    import json as jsonlib
+
+    from app.db import connect
+
+    client = _client(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, src_port, dst_port, proto, action, received_at) "
+            "VALUES (?, '192.168.10.5', '192.168.20.9', 51000, 443, 6, 'ALLOW', ?)",
+            (time.time(), time.time()),
+        )
+        conn.execute(
+            "INSERT INTO identities (device_key, ip, hostname, first_seen, last_seen) "
+            "VALUES ('192.168.10.5', '192.168.10.5', 'kitchen-echo', ?, ?)",
+            (time.time(), time.time()),
+        )
+        conn.execute(
+            """INSERT INTO recommendations
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
+                confidence, evidence_event_ids)
+               VALUES (?, 'pending', 'zero_trust', 'IoT|Home|A|B|6|443', 'x', '{}', 'low', ?)""",
+            (time.time(), jsonlib.dumps([1])),
+        )
+        conn.commit()
+
+    body = client.get("/recommendations").get_data(as_text=True)
+    assert "kitchen-echo" in body
+    assert "192.168.20.9" in body
+
+
 def test_accepted_recommendation_shows_as_implemented_once_a_matching_rule_exists(tmp_path, monkeypatch):
     import json
 

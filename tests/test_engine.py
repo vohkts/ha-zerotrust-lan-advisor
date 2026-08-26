@@ -362,6 +362,52 @@ def test_real_identifiers_are_sent_only_when_explicitly_enabled(tmp_path, monkey
     assert "kitchen-echo" in captured[0]
 
 
+def test_external_to_external_traffic_never_becomes_a_recommendation(tmp_path, monkeypatch):
+    # Real bug, reported live: "Allow ICMP traffic from Unclassified
+    # device on 89.58.82.0/24 to Unclassified device on 85.217.149.0/24"
+    # -- two public ranges, neither touching any of the user's own
+    # network zones. Not a segmentation decision this add-on's user can
+    # act on, ever.
+    monkeypatch.setattr(engine, "chat_completion", lambda *a, **k: json.dumps(FAKE_RECOMMENDATION))
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    base_ts = time.time() - 3 * 86400
+    for day in range(3):
+        conn.execute(
+            """INSERT INTO events_firewall
+               (ts, src_ip, dst_ip, src_port, dst_port, proto, action, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (base_ts + day * 86400, "89.58.82.5", "85.217.149.9", 51000, None, 1, "ALLOW", base_ts),
+        )
+    conn.commit()
+
+    result = engine.run_analysis_pass(conn, _config())
+    assert result.zero_trust_written == 0
+    assert conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0] == 0
+
+
+def test_internal_to_external_traffic_still_becomes_a_recommendation(tmp_path, monkeypatch):
+    # One real local device talking to one external service is still a
+    # legitimate zero-trust recommendation (e.g. "this smart TV always
+    # talks to this one update server") -- only external<->external
+    # should be excluded.
+    monkeypatch.setattr(engine, "chat_completion", lambda *a, **k: json.dumps(FAKE_RECOMMENDATION))
+
+    conn = db.connect(tmp_path / "zerotrust.db")
+    base_ts = time.time() - 3 * 86400
+    for day in range(3):
+        conn.execute(
+            """INSERT INTO events_firewall
+               (ts, src_ip, dst_ip, src_port, dst_port, proto, action, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (base_ts + day * 86400, "192.168.10.5", "85.217.149.9", 51000, 443, 6, "ALLOW", base_ts),
+        )
+    conn.commit()
+
+    result = engine.run_analysis_pass(conn, _config())
+    assert result.zero_trust_written == 1
+
+
 def test_llm_failure_is_skipped_not_raised(tmp_path, monkeypatch):
     from app.llm.client import LLMError
 

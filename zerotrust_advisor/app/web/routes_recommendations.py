@@ -56,10 +56,51 @@ def _implemented_status(pattern_signature: str, real_policies: list) -> tuple[bo
     return True, policy.id, policy.name
 
 
+def _real_ips_for_evidence(conn, evidence_event_ids: list[int]) -> tuple[list[str], list[str]]:
+    """Real (src_ips, dst_ips) behind a pattern's stored sample evidence.
+    Bounded by however many sample_event_ids grouping.py kept in the
+    first place (a handful), regardless of how many times the pattern
+    actually occurred."""
+    if not evidence_event_ids:
+        return [], []
+    placeholders = ",".join("?" * len(evidence_event_ids))
+    rows = conn.execute(
+        f"SELECT src_ip, dst_ip FROM events_firewall WHERE id IN ({placeholders})",  # noqa: S608 -- placeholders only
+        evidence_event_ids,
+    ).fetchall()
+    return sorted({r[0] for r in rows}), sorted({r[1] for r in rows})
+
+
+def _real_identity_label(conn, ips: list[str]) -> str | None:
+    """A compact, real, local-only label for one side of a pattern --
+    hostname (or bare IP) for a single device, or a real device count
+    with example IPs for a population. This is a completely different
+    privacy boundary than what ever reaches the LLM (see
+    llm_send_real_identifiers in prompts.py): this page never leaves the
+    box, same reasoning the Traffic page already relies on to show real
+    IPs/hostnames directly. Reported live: recommendation text alone
+    ("a single, consistently the same device") gave no way to tell which
+    real device that actually was."""
+    if not ips:
+        return None
+
+    def _label(ip: str) -> str:
+        row = conn.execute(
+            "SELECT hostname FROM identities WHERE ip = ? ORDER BY last_seen DESC LIMIT 1", (ip,)
+        ).fetchone()
+        return f"{ip} ({row[0]})" if row and row[0] else ip
+
+    if len(ips) == 1:
+        return _label(ips[0])
+    shown = ", ".join(_label(ip) for ip in ips[:3])
+    more = f", +{len(ips) - 3} more" if len(ips) > 3 else ""
+    return f"{len(ips)} devices: {shown}{more}"
+
+
 def _load_items(conn, category: str, real_policies: list | None = None):
     rows = conn.execute(
         """SELECT id, created_at, status, pattern_summary_text, structured_json, confidence, pattern_signature,
-                  applied_at, applied_policy_id
+                  applied_at, applied_policy_id, evidence_event_ids
            FROM recommendations WHERE category = ? ORDER BY created_at DESC""",
         (category,),
     ).fetchall()
@@ -77,6 +118,8 @@ def _load_items(conn, category: str, real_policies: list | None = None):
             "implemented": None,
             "matched_policy_id": None,
             "matched_policy_name": None,
+            "real_source": None,
+            "real_destination": None,
         }
         if applied_policy_id:
             # Applied through this add-on itself (Stage 3) -- a direct,
@@ -91,6 +134,10 @@ def _load_items(conn, category: str, real_policies: list | None = None):
             item["implemented"], item["matched_policy_id"], item["matched_policy_name"] = _implemented_status(
                 row[6], real_policies
             )
+        if category == "zero_trust":
+            src_ips, dst_ips = _real_ips_for_evidence(conn, json.loads(row[9] or "[]"))
+            item["real_source"] = _real_identity_label(conn, src_ips)
+            item["real_destination"] = _real_identity_label(conn, dst_ips)
         items.append(item)
     return items
 
@@ -151,17 +198,7 @@ def _build_payload(conn, rec: dict) -> tuple[dict, str]:
     proto = int(proto_s)
     port = None if port_s == "None" else int(port_s)
 
-    event_ids = rec["evidence_event_ids"]
-    src_ips: list[str] = []
-    dst_ips: list[str] = []
-    if event_ids:
-        placeholders = ",".join("?" * len(event_ids))
-        rows = conn.execute(
-            f"SELECT src_ip, dst_ip FROM events_firewall WHERE id IN ({placeholders})",  # noqa: S608 -- placeholders only
-            event_ids,
-        ).fetchall()
-        src_ips = sorted({r[0] for r in rows})
-        dst_ips = sorted({r[1] for r in rows})
+    src_ips, dst_ips = _real_ips_for_evidence(conn, rec["evidence_event_ids"])
 
     since = time.time() - 30 * 86400
     network_map = build_network_map(conn, since=since)

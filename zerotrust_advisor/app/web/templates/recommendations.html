@@ -48,6 +48,10 @@
       <code>{{ item.structured.rule_protocol_port }}</code>
     </p>
     {% endif %}
+    {% if item.real_source or item.real_destination %}
+    <p class="hint real-identity">Real device(s) — this never leaves the box: <strong>{{ item.real_source or "unknown" }}</strong>
+       &rarr; <strong>{{ item.real_destination or "unknown" }}</strong></p>
+    {% endif %}
     <dl>
       <dt>Likely purpose</dt><dd>{{ item.structured.likely_purpose }}</dd>
       <dt>Suggested rule scope</dt><dd>{{ item.structured.suggested_rule_scope }}</dd>
@@ -139,6 +143,10 @@
       <code>{{ item.structured.rule_destination }}</code>
       <code>{{ item.structured.rule_protocol_port }}</code>
     </p>
+    {% endif %}
+    {% if item.real_source or item.real_destination %}
+    <p class="hint real-identity">Real device(s) — this never leaves the box: <strong>{{ item.real_source or "unknown" }}</strong>
+       &rarr; <strong>{{ item.real_destination or "unknown" }}</strong></p>
     {% endif %}
     <div class="actions">
       {% if item.category == 'zero_trust' and item.status == 'accepted' and not item.applied_at %}

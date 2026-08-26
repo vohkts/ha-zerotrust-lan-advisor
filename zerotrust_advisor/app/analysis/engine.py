@@ -15,6 +15,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 
+from app.analysis.direction import is_private_ip
 from app.analysis.grouping import GroupableEvent, group_candidate_patterns
 from app.analysis.netlabels import parse_network_labels
 from app.analysis.network_map import (
@@ -131,6 +132,18 @@ def _load_events(
             # UDM console's own management IP — infrastructure noise
             # (DNS/DHCP served to every device, health checks), not a
             # segmentation decision worth a recommendation.
+            continue
+        if not is_private_ip(src_ip) and not is_private_ip(dst_ip):
+            # Real bug, reported live: recommendations like "allow ICMP
+            # from 89.58.82.0/24 to 85.217.149.0/24" -- two public ranges,
+            # neither touching any of the user's own network zones at
+            # all. This is the same EXTERNAL_EXTERNAL case the Traffic
+            # page already tracks separately (see direction.py) -- normal
+            # background internet noise or pre-NAT logging quirks, never
+            # a zero-trust segmentation decision the user's own firewall
+            # can act on. An internal<->external pattern (one real local
+            # device, one external service) is still a legitimate
+            # recommendation and stays in.
             continue
         src_label = resolve_label(src_ip, network_map, friendly_names, manual_labels, unifi_networks, vlan_names)
         dst_label = resolve_label(dst_ip, network_map, friendly_names, manual_labels, unifi_networks, vlan_names)
