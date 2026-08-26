@@ -90,12 +90,10 @@
 
 <div class="tab-panel" data-tab-panel="settings" {% if active_tab != 'settings' %}hidden{% endif %}>
 
-{% if saved and restarting %}
+{% if saved %}
 <p class="chip chip-ok">Saved — restarting now to apply it (a few seconds; this page will keep working
-   once it's back).</p>
-{% elif saved %}
-<p class="chip chip-warn">Saved, but couldn't trigger a restart automatically — restart this add-on
-   manually to apply the change (Settings &rarr; Add-ons &rarr; this add-on &rarr; Restart).</p>
+   once it's back). If it doesn't come back, restart this add-on manually (Settings &rarr; Add-ons
+   &rarr; this add-on &rarr; Restart).</p>
 {% endif %}
 {% if unifi_api_key_error %}
 <p class="chip chip-warn">UniFi API key not saved: {{ unifi_api_key_error }}</p>

@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **Stage 3: applying a recommendation to UniFi.** Off by default, gated
+  behind three independent conditions (manual apply mode, a new explicit
+  "I understand this can write to my firewall" acknowledgment, and a
+  working API key) before it's reachable at all. Creates exactly one
+  narrow rule per confirmation, always previewed from the literal payload
+  first — never modifies, disables, reorders, or deletes anything. See
+  `STAGE3_APPLY_GOVERNANCE.md` for the full contract. **Currently in a
+  live-testing mode**: every created rule is forced disabled
+  (`app.unifi.apply.CREATE_RULES_ENABLED`), so a mistake during validation
+  has zero effect on real traffic.
+- **Live View** tab (new landing page): a polling, real-time table of
+  firewall events (source, destination, port, allow/block), off until
+  Start is clicked.
+- Expandable Hosts and Firewall-policy rows with full behavior/config
+  detail, including an on-demand LLM "guess" for unclassified devices.
+- Recommendations now check the existing UniFi ruleset before suggesting
+  anything new (never counting a broad "allow everything" rule as
+  coverage), show whether an accepted rule has actually been implemented
+  yet, and default to showing only open (pending) items — accepted/
+  dismissed ones move to their own tab with a Reopen action.
+- `llm_send_real_identifiers` setting (off by default): sends real
+  hostnames/IPs instead of device classes, for anyone whose configured
+  LLM endpoint never actually leaves their own network.
+- A local-LLM host capacity check on Settings: detected CPU/RAM against a
+  comfortable range, plus a reference performance table.
+- Real UniFi network names now resolve via VLAN-tagged bridge interfaces
+  (`br<vlanId>`) as well as by subnet — some UniFi Network Application
+  versions don't expose a subnet on the network object at all, which had
+  made real names silently never appear before this.
+
+### Fixed
+
+- Settings save could 502 through real Ingress: the automatic restart
+  this add-on triggers after a save was racing the still-in-flight HTTP
+  response, killing the container before "Saved" ever reached the
+  browser. The restart now waits until the response has had a chance to
+  finish sending.
+- Host-detail and Traffic page performance (compound DB indexes, an
+  async-loaded Traffic page instead of one big synchronous render).
+
 ## 0.3.0
 
 ### Added

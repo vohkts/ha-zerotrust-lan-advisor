@@ -1,4 +1,5 @@
 import sys
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "zerotrust_advisor"))
@@ -60,19 +61,32 @@ def test_setup_page_hides_capacity_check_in_remote_llm_mode(tmp_path, monkeypatc
 
 
 def test_save_triggers_a_restart_and_says_so(tmp_path, monkeypatch):
+    # Real bug, reported live: calling restart_self() inline, before this
+    # response was even rendered, raced Supervisor tearing the container
+    # down against the response still being written -- through real
+    # Ingress that lost race was an outright 502, not a graceful "saved,
+    # restarting" page. Fixed with a short delay on a background thread;
+    # this test waits for that delayed call rather than expecting it to
+    # have already happened by the time the response comes back.
     monkeypatch.setattr(routes_setup, "update_options", lambda opts: None)
-    restarted = []
-    monkeypatch.setattr(routes_setup, "restart_self", lambda: restarted.append(True))
+    monkeypatch.setattr(routes_setup.time, "sleep", lambda seconds: None)  # don't actually wait 1.5s in tests
+    restarted = threading.Event()
+    monkeypatch.setattr(routes_setup, "restart_self", lambda: restarted.set())
 
     client = _client(tmp_path, monkeypatch)
     resp = client.post("/settings", data={"unifi_host": "1.2.3.4"})
 
-    assert restarted == [True]
     assert "restarting now" in resp.get_data(as_text=True)
+    assert restarted.wait(timeout=2)
 
 
 def test_save_still_succeeds_when_the_restart_trigger_fails(tmp_path, monkeypatch):
+    # The restart call now happens after this response is already on its
+    # way to the client (see above), so a failure in it can no longer
+    # change this response's own text -- it's only ever logged. The
+    # response must still come back clean regardless.
     monkeypatch.setattr(routes_setup, "update_options", lambda opts: None)
+    monkeypatch.setattr(routes_setup.time, "sleep", lambda seconds: None)
 
     def _boom():
         raise RuntimeError("supervisor unreachable")
@@ -85,4 +99,4 @@ def test_save_still_succeeds_when_the_restart_trigger_fails(tmp_path, monkeypatc
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Saved" in body
-    assert "couldn't trigger a restart automatically" in body
+    assert "restarting now" in body

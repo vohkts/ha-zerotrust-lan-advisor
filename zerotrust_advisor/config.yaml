@@ -1,5 +1,5 @@
 name: Zero-Trust LAN Advisor
-version: "0.3.0"
+version: "0.4.0"
 slug: zerotrust_advisor
 description: Passive firewall/flow log analysis with LLM-assisted zero-trust rule recommendations
 url: https://github.com/vohkts/ha-zerotrust-lan-advisor

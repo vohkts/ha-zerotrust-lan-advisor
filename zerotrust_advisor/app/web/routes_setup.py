@@ -11,6 +11,7 @@ options store, never a log line.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 from flask import Blueprint, current_app, jsonify, render_template, request
@@ -131,11 +132,10 @@ def _report_to_json(report) -> dict:
     }
 
 
-def _settings_context(conn, saved: bool, restarting: bool, unifi_api_key_error: str | None) -> dict:
+def _settings_context(conn, saved: bool, unifi_api_key_error: str | None) -> dict:
     return {
         "config": current_app.config["ZTA_CONFIG"],
         "saved": saved,
-        "restarting": restarting,
         "unifi_has_key": bool(read_secret("unifi_api_key")),
         "unifi_last_probe": load_probe_report(conn),
         "unifi_api_key_error": unifi_api_key_error,
@@ -152,7 +152,7 @@ def setup_page():
         "setup.html",
         active_tab="status",
         **_status_context(config, conn),
-        **_settings_context(conn, saved=False, restarting=False, unifi_api_key_error=None),
+        **_settings_context(conn, saved=False, unifi_api_key_error=None),
     )
 
 
@@ -204,16 +204,24 @@ def save_settings():
 
     current_app.config["ZTA_CONFIG"] = load_config()
 
-    restarting = True
-    try:
-        restart_self()
-    except Exception:
-        # Saved options are real either way — Supervisor has them for the
-        # next start regardless. Only the "takes effect immediately"
-        # convenience is at risk here, so a hiccup calling the restart API
-        # shouldn't turn a successful save into an error response.
-        logger.exception("failed to trigger self-restart after settings save")
-        restarting = False
+    # Real bug, reported live: calling restart_self() inline, before this
+    # response is even rendered, raced Supervisor tearing the container
+    # down against waitress still writing the "Saved" response to the
+    # socket -- through real Ingress (unlike the internal bypass URL this
+    # was previously checked against) that lost race shows up as the
+    # browser's own request getting killed outright: a 502, not a
+    # graceful "saved, restarting" page. A short delay on a background
+    # thread lets this response actually finish sending first; the
+    # in-flight request Supervisor was supposedly giving a "grace period"
+    # to finish clearly wasn't enough of one for a real Ingress hop.
+    def _delayed_restart() -> None:
+        time.sleep(1.5)
+        try:
+            restart_self()
+        except Exception:
+            logger.exception("failed to trigger self-restart after settings save")
+
+    threading.Thread(target=_delayed_restart, daemon=True).start()
 
     config = current_app.config["ZTA_CONFIG"]
     conn = get_db()
@@ -221,7 +229,7 @@ def save_settings():
         "setup.html",
         active_tab="settings",
         **_status_context(config, conn),
-        **_settings_context(conn, saved=True, restarting=restarting, unifi_api_key_error=unifi_api_key_error),
+        **_settings_context(conn, saved=True, unifi_api_key_error=unifi_api_key_error),
     )
 
 
