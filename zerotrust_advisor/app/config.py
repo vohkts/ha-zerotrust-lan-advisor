@@ -35,6 +35,7 @@ DEFAULTS = {
     "unifi_host": "",
     "unifi_verify_tls": False,
     "unifi_apply_mode": "manual",
+    "unifi_apply_acknowledged": False,
     "display_timezone_utc": False,
     "ignore_unifi_console_traffic": True,
 }
@@ -63,13 +64,21 @@ class Config:
     # the Settings copy says so.
     llm_send_real_identifiers: bool
     # Stage 2 (UniFi UDM-only, optional, off by default — see app/unifi/).
-    # unifi_apply_mode is Stage 3 prep: "manual" is the only mode with any
-    # real behavior today. "automatic" is stored and shown in Settings but
-    # nothing in this codebase acts on it yet — no write path exists.
+    # unifi_apply_mode is Stage 3: "manual" is the only mode with any real
+    # behavior — see STAGE3_APPLY_GOVERNANCE.md. "automatic" is stored and
+    # shown in Settings but deliberately does nothing; unattended apply is
+    # a separate trust decision this add-on has not made.
     unifi_enabled: bool
     unifi_host: str
     unifi_verify_tls: bool
     unifi_apply_mode: str
+    # One of three independent conditions required before Apply is even
+    # reachable (see STAGE3_APPLY_GOVERNANCE.md §5) — a separate,
+    # explicit "I understand this writes to my firewall" acknowledgment,
+    # deliberately not the same checkbox as unifi_enabled/unifi_apply_mode
+    # so enabling read-only UniFi access or picking "manual" from a
+    # dropdown can never be mistaken for having agreed to this.
+    unifi_apply_acknowledged: bool
     # Every timestamp in this UI defaults to Home Assistant's own configured
     # timezone (read from the Supervisor, see app/supervisor.py's
     # get_timezone()), falling back to UTC if that can't be determined.
@@ -117,6 +126,7 @@ def load_config() -> Config:
         unifi_host=str(raw["unifi_host"]),
         unifi_verify_tls=bool(raw["unifi_verify_tls"]),
         unifi_apply_mode=str(raw["unifi_apply_mode"]),
+        unifi_apply_acknowledged=bool(raw["unifi_apply_acknowledged"]),
         display_timezone_utc=bool(raw["display_timezone_utc"]),
         ignore_unifi_console_traffic=bool(raw["ignore_unifi_console_traffic"]),
     )

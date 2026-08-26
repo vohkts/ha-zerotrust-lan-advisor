@@ -1,16 +1,23 @@
-"""A read-only client for the official UniFi Network Integration API
-(API-key auth — Settings -> Control Plane -> Integrations on the console
-itself, or via unifi.ui.com -> API Keys). UDM-class consoles only, by
-design: `X-API-Key` auth over `/proxy/network/integration/v1/...` is a
-UniFi-OS-console feature, not something a standalone software controller
-or another vendor's gear exposes.
+"""A client for the official UniFi Network Integration API (API-key auth —
+Settings -> Control Plane -> Integrations on the console itself, or via
+unifi.ui.com -> API Keys). UDM-class consoles only, by design: `X-API-Key`
+auth over `/proxy/network/integration/v1/...` is a UniFi-OS-console
+feature, not something a standalone software controller or another
+vendor's gear exposes.
 
 Deliberately does not touch the older "Classic" cookie-session API (local
 admin username/password, CSRF tokens, `/proxy/network/api/...`) even
 though it exposes more — trading completeness for staying inside Home
 Assistant's read-only, credential-light integration model documented for
-the official API. Nothing in this module issues a non-GET request; there
-is no write path here at all, matching Stage 1/2's read-only scope.
+the official API.
+
+Almost every method here is a plain GET — Stage 1/2 remain entirely
+read-only. The one exception is `create_firewall_policy`, Stage 3's only
+write call (see ../../STAGE3_APPLY_GOVERNANCE.md), and it is never called
+except from `app/unifi/apply.py`, itself only reachable through the
+human-confirmed Apply flow described there. Adding a second write method
+here should mean adding a second, equally narrow one — not widening this
+into a generic "send any request" client.
 
 Field-shape note: `X-API-Key` auth and the endpoints below (`/info`,
 `/sites`, `/devices`, `/clients`, `/firewall/zones`, `/firewall/policies`)
@@ -169,6 +176,37 @@ class UnifiClientAPI:
         except json.JSONDecodeError as exc:
             raise UnifiError(f"non-JSON response from {path}") from exc
 
+    def _post(self, path: str, body: dict) -> tuple[int, dict]:
+        """Returns (status_code, parsed_body). Only ever called by
+        create_firewall_policy — see this module's own docstring. Same
+        error handling as _get, since the failure modes (auth, TLS,
+        malformed key, unreachable console) are identical for a write."""
+        url = f"{self._base_url}{path}"
+        data = json.dumps(body).encode()
+        request = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "X-API-Key": self._api_key,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self._timeout, context=self._ssl_context) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode(errors="replace")
+            raise UnifiError(f"{exc.code} {exc.reason} for {path}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise UnifiUnreachable(f"could not reach {self._base_url}: {exc}") from exc
+        except UnicodeEncodeError as exc:
+            raise UnifiError(
+                "the API key contains a character that isn't valid in an HTTP header (only plain ASCII "
+                "is allowed) — check you copied only the key itself, with nothing extra around it"
+            ) from exc
+
     @staticmethod
     def _items(payload: dict) -> list[dict]:
         """The v1 Integration API wraps collections in a pagination
@@ -292,6 +330,21 @@ class UnifiClientAPI:
                 )
             )
         return policies
+
+    def create_firewall_policy(self, site_id: str, payload: dict) -> dict:
+        """The one write call in this client — see the module docstring
+        and STAGE3_APPLY_GOVERNANCE.md. `payload` must already be in the
+        API's exact "Create or update firewall policy" shape (built by
+        app/unifi/apply.py, never assembled here); this method does not
+        validate or modify it. Returns UniFi's own response (the full
+        created policy, including its real id) on success; raises
+        UnifiError/UnifiUnreachable exactly like every read method here on
+        failure — deliberately no special-case handling that would hide
+        or reword what the console actually said."""
+        status, body = self._post(f"/sites/{site_id}/firewall/policies", payload)
+        if status != 201:
+            raise UnifiError(f"unexpected {status} creating firewall policy (expected 201): {body}")
+        return body
 
 
 def _client_type(item: dict) -> str | None:

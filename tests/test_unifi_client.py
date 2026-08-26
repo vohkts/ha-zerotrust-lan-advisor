@@ -243,3 +243,64 @@ def test_non_ascii_api_key_raises_a_readable_unifi_error_not_a_raw_encode_error(
     client = UnifiClientAPI(host="192.168.1.1", api_key="abc—xyz")
     with pytest.raises(UnifiError, match="plain ASCII"):
         client.get_info()
+
+
+class _FakeWriteResponse:
+    def __init__(self, status, payload):
+        self.status = status
+        self._body = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def test_create_firewall_policy_returns_the_created_object_on_201(monkeypatch):
+    created = {"id": "new-policy-id", "name": "My rule", "enabled": True}
+
+    captured = {}
+
+    def _fake_urlopen(request, timeout=None, context=None):
+        captured["method"] = request.get_method()
+        captured["body"] = json.loads(request.data)
+        captured["headers"] = dict(request.header_items())
+        return _FakeWriteResponse(201, created)
+
+    monkeypatch.setattr("app.unifi.client.urllib.request.urlopen", _fake_urlopen)
+    client = UnifiClientAPI(host="192.168.1.1", api_key="test-key")
+
+    result = client.create_firewall_policy("site-1", {"name": "My rule"})
+
+    assert result == created
+    assert captured["method"] == "POST"
+    assert captured["body"] == {"name": "My rule"}
+    assert captured["headers"]["X-api-key"] == "test-key"
+
+
+def test_create_firewall_policy_raises_on_an_unexpected_success_status(monkeypatch):
+    def _fake_urlopen(request, timeout=None, context=None):
+        return _FakeWriteResponse(200, {"id": "x"})
+
+    monkeypatch.setattr("app.unifi.client.urllib.request.urlopen", _fake_urlopen)
+    client = UnifiClientAPI(host="192.168.1.1", api_key="test-key")
+
+    with pytest.raises(UnifiError, match="expected 201"):
+        client.create_firewall_policy("site-1", {"name": "My rule"})
+
+
+def test_create_firewall_policy_surfaces_the_real_http_error(monkeypatch):
+    def _boom(*a, **k):
+        raise urllib.error.HTTPError(
+            "url", 403, "Forbidden", {}, io.BytesIO(b'{"code":"insufficient-scope"}')
+        )
+
+    monkeypatch.setattr("app.unifi.client.urllib.request.urlopen", _boom)
+    client = UnifiClientAPI(host="192.168.1.1", api_key="test-key")
+
+    with pytest.raises(UnifiError, match="403"):
+        client.create_firewall_policy("site-1", {"name": "My rule"})

@@ -9,8 +9,11 @@ Everything happens through this add-on's own screens — no YAML editing, no
 command line, no manual subnet/VLAN configuration required to get useful
 output.
 
-It never writes to your router. It listens, learns, and recommends; you
-decide what to do with each suggestion.
+By default, it never writes to your router — it listens, learns, and
+recommends; you decide what to do with each suggestion. An optional,
+off-by-default capability lets it create the exact rule a recommendation
+described for you, one at a time, only ever after you've explicitly
+confirmed it — see "Applying a recommendation to UniFi" below.
 
 ## Router-side setup
 
@@ -95,8 +98,10 @@ key-based **Network Integration API**
 uses, even though that one exposes more (full VLAN CRUD, legacy firewall
 rules, port forwards): the integration API is narrower but stays within a
 clean, official, credential-light model — an API key, not your UniFi
-account's username and password. Nothing in this add-on writes to UniFi,
-regardless of any setting below.
+account's username and password. Everything below is read-only; the one
+place this add-on can write to UniFi (Stage 3, applying an accepted
+recommendation) is a separate, off-by-default capability covered later in
+this section, gated behind its own explicit opt-in.
 
 **Setup**, all from the Settings screen:
 
@@ -139,12 +144,22 @@ about the policy's configuration, not proof it has actually matched
 anything; the API doesn't expose per-policy match evidence, only the
 policy's own settings.
 
-**Firewall rule apply mode** — reserved, not yet functional. A future
-stage may let this add-on write accepted zero-trust rules back to UniFi
-automatically instead of you doing it by hand; the setting exists now so
-it's visible where the rest of the UniFi settings live, but selecting
-"automatic" changes nothing today. There is no code path anywhere in this
-add-on that writes to UniFi.
+**Applying a recommendation to UniFi (Stage 3)** — off by default, and
+requires three separate things to all be true before it's reachable at
+all: apply mode set to "Manual" (the only mode with any real behavior —
+"Automatic" is stored but does nothing), the explicit "I understand this
+add-on can create firewall rules on my UniFi console" checkbox, and a
+working UniFi API key. See `STAGE3_APPLY_GOVERNANCE.md` for the full
+contract; in short, this add-on only ever *creates* one new, narrow rule
+at a time, always from a literal payload preview you confirm yourself —
+never modifies, disables, reorders, or deletes anything, and never runs
+unattended. Once all three conditions are met, an accepted zero-trust
+recommendation gets an **Apply…** button on the "Accepted & Dismissed"
+tab. Applying re-checks the live ruleset immediately beforehand and
+refuses if something already covers it (see "What it adds to
+Recommendations" above), and refuses outright if either side of the
+recommendation isn't confirmed against a real UniFi network — it never
+guesses a scope.
 
 ## Settings reference
 
@@ -168,10 +183,12 @@ downtime for the receivers/web UI each time you save.
 | Enable mDNS listening | Passive mDNS for better device classification (real hostnames instead of vendor/IP fallback). Requires host networking, which is the *only* reason this add-on would ever need it — left off by default since it's a real network-isolation trade-off, not because it doesn't work. |
 | LLM mode | Local (bundled `llama-server`, runs on your own hardware) or Remote (any OpenAI-compatible endpoint). One code path handles both — just a different base URL and key. |
 | Remote base URL / API key | Only used in Remote mode. The key is written to `/data/secrets/`, never to the options store, never logged. |
+| Send real hostnames/IPs to the LLM | Off by default, either LLM mode. Skips the usual class/network-label pseudonymization — only sensible if the endpoint you've configured above (local or remote) never actually leaves your own network, e.g. a self-hosted Ollama instance. |
 | Enable UniFi integration | Off by default. See "Stage 2: UniFi UDM integration" above. |
 | UniFi console IP / API key | The key is written to `/data/secrets/`, same as the remote LLM key. |
 | Verify UniFi console TLS certificate | Off by default, for a local UDM's self-signed certificate. |
-| Firewall rule apply mode | Reserved for a future stage — not yet functional either way. |
+| Firewall rule apply mode | "Manual" (default) is the only mode with real behavior — see "Applying a recommendation to UniFi" above. "Automatic" is stored but does nothing. |
+| I understand this add-on can create firewall rules | Off by default. One of three independent conditions required before Apply is reachable at all. |
 
 ## Privacy, if you use a remote LLM endpoint
 
@@ -189,10 +206,10 @@ the salt file) can't be reversed back to a real address.
   zone a network belongs to) — the UniFi integration above adds that, but
   only for UniFi UDM consoles, and only what the console's Integration API
   actually exposes.
-- No write access exists anywhere in this add-on. Applying an approved
-  recommendation is a manual step you do on your router; a future,
-  entirely optional Stage 3 might change that, but only with explicit,
-  narrowly-scoped approval per change — never built without it.
+- Applying a recommendation is optional and off by default (see
+  "Applying a recommendation to UniFi" above and
+  `STAGE3_APPLY_GOVERNANCE.md`) — you can always keep applying rules
+  manually on your router instead, exactly as before.
 - The recommendation engine currently reads firewall events only, not
   NetFlow-derived flows, for pattern-grouping (NetFlow still feeds the
   Traffic screen and coverage checks).

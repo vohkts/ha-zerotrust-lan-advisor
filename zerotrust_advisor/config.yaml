@@ -41,6 +41,7 @@ options:
   unifi_host: ""
   unifi_verify_tls: false
   unifi_apply_mode: manual
+  unifi_apply_acknowledged: false
   display_timezone_utc: false
   ignore_unifi_console_traffic: true
 schema:
@@ -62,5 +63,6 @@ schema:
   unifi_host: str
   unifi_verify_tls: bool
   unifi_apply_mode: list(manual|automatic)
+  unifi_apply_acknowledged: bool
   display_timezone_utc: bool
   ignore_unifi_console_traffic: bool

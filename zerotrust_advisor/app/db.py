@@ -101,7 +101,9 @@ CREATE TABLE IF NOT EXISTS recommendations (
     structured_json TEXT NOT NULL,
     llm_model_used TEXT,
     confidence TEXT,
-    evidence_event_ids TEXT
+    evidence_event_ids TEXT,
+    applied_at REAL,
+    applied_policy_id TEXT
 );
 -- No index on `category` here: on a database that predates this column,
 -- CREATE TABLE IF NOT EXISTS is a no-op (the table already exists), so an
@@ -226,6 +228,12 @@ _COLUMN_MIGRATIONS = [
     ("unifi_clients", "client_type", "TEXT"),
     ("identities", "llm_guess", "TEXT"),
     ("identities", "llm_guess_at", "REAL"),
+    # Stage 3 (see STAGE3_APPLY_GOVERNANCE.md) -- both null until a
+    # recommendation is actually applied; applied_policy_id is the real
+    # UniFi-assigned id, used from then on as a direct lookup instead of
+    # the port-based best-effort "Implemented" match everything else uses.
+    ("recommendations", "applied_at", "REAL"),
+    ("recommendations", "applied_policy_id", "TEXT"),
 ]
 
 

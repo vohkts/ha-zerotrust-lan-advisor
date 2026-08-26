@@ -210,3 +210,274 @@ def test_run_now_reports_already_running_without_starting_a_second_pass(tmp_path
         assert calls == []
     finally:
         runner._lock.release()
+
+
+# --- Stage 3: apply -----------------------------------------------------
+
+
+def _client_apply_gated_open(tmp_path, monkeypatch):
+    """A client with all three STAGE3_APPLY_GOVERNANCE.md §5 conditions
+    satisfied -- used to test the actual apply flow. Individual gate
+    tests below start from the plain (fully closed) _client instead."""
+    import json as jsonlib
+
+    import app.config as config_module
+
+    monkeypatch.setenv("ZTA_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(config_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config_module, "OPTIONS_PATH", tmp_path / "options.json")
+    monkeypatch.setattr(config_module, "SECRETS_DIR", tmp_path / "secrets")
+    (tmp_path / "options.json").write_text(
+        jsonlib.dumps(
+            {
+                "unifi_apply_mode": "manual",
+                "unifi_apply_acknowledged": True,
+                "unifi_enabled": True,
+                "unifi_host": "192.168.1.1",
+            }
+        )
+    )
+    config_module.write_secret("unifi_api_key", "test-key")
+
+    from app.web.server import create_app as _create_app
+
+    app = _create_app()
+    app.testing = True
+    return app.test_client()
+
+
+def test_apply_gate_default_is_fully_closed(tmp_path, monkeypatch):
+    # unifi_apply_mode already defaults to "manual" (from Stage 2) -- the
+    # acknowledgment gate is the one actually stopping a fresh install.
+    client = _client(tmp_path, monkeypatch)
+    resp = client.get("/recommendations/1/apply-preview")
+    assert resp.status_code == 403
+    assert "acknowledged" in resp.get_json()["error"]
+
+
+def test_apply_gate_requires_acknowledgment_even_with_manual_mode_and_unifi_configured(tmp_path, monkeypatch):
+    import json as jsonlib
+
+    import app.config as config_module
+
+    monkeypatch.setenv("ZTA_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(config_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config_module, "OPTIONS_PATH", tmp_path / "options.json")
+    monkeypatch.setattr(config_module, "SECRETS_DIR", tmp_path / "secrets")
+    (tmp_path / "options.json").write_text(
+        jsonlib.dumps({"unifi_apply_mode": "manual", "unifi_enabled": True, "unifi_host": "192.168.1.1"})
+    )
+    config_module.write_secret("unifi_api_key", "test-key")
+
+    from app.web.server import create_app as _create_app
+
+    app = _create_app()
+    app.testing = True
+    resp = app.test_client().get("/recommendations/1/apply-preview")
+    assert resp.status_code == 403
+    assert "acknowledged" in resp.get_json()["error"]
+
+
+def test_apply_preview_404s_for_an_unknown_recommendation(tmp_path, monkeypatch):
+    client = _client_apply_gated_open(tmp_path, monkeypatch)
+    resp = client.get("/recommendations/999/apply-preview")
+    assert resp.status_code == 404
+
+
+def test_apply_preview_refuses_a_pending_not_yet_accepted_recommendation(tmp_path, monkeypatch):
+    from app.db import connect
+
+    client = _client_apply_gated_open(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            """INSERT INTO recommendations
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
+                confidence, evidence_event_ids)
+               VALUES (?, 'pending', 'zero_trust', 'IoT|Server|A|B|17|123', 'x', '{}', 'low', '[]')""",
+            (time.time(),),
+        )
+        conn.commit()
+        rec_id = conn.execute("SELECT id FROM recommendations").fetchone()[0]
+
+    resp = client.get(f"/recommendations/{rec_id}/apply-preview")
+    assert resp.status_code == 400
+    assert "accepted" in resp.get_json()["error"]
+
+
+def test_apply_preview_refuses_when_no_real_network_can_be_confirmed(tmp_path, monkeypatch):
+    from app.db import connect
+
+    client = _client_apply_gated_open(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            """INSERT INTO recommendations
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
+                confidence, evidence_event_ids)
+               VALUES (?, 'accepted', 'zero_trust', 'IoT|Server|A|B|17|123', 'x',
+                       '{"action": "allow", "rule_source": "IoT", "rule_destination": "Server"}',
+                       'low', '[]')""",
+            (time.time(),),
+        )
+        conn.commit()
+        rec_id = conn.execute("SELECT id FROM recommendations").fetchone()[0]
+
+    resp = client.get(f"/recommendations/{rec_id}/apply-preview")
+    assert resp.status_code == 422
+    assert "No real device IPs" in resp.get_json()["error"]
+
+
+def test_apply_succeeds_and_records_the_real_policy_id(tmp_path, monkeypatch):
+    import json as jsonlib
+
+    from app.db import connect
+
+    client = _client_apply_gated_open(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, src_port, dst_port, proto, iface_in, iface_out, action, received_at) "
+            "VALUES (?, '192.168.10.5', '192.168.20.9', 51000, 123, 17, 'br1', 'br2', 'ALLOW', ?)",
+            (time.time(), time.time()),
+        )
+        conn.execute(
+            "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) VALUES "
+            "('net-iot', 'IoT', 1, NULL, ?, ?)",
+            (jsonlib.dumps({"zoneId": "zone-iot"}), time.time()),
+        )
+        conn.execute(
+            "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) VALUES "
+            "('net-server', 'Server', 2, NULL, ?, ?)",
+            (jsonlib.dumps({"zoneId": "zone-server"}), time.time()),
+        )
+        conn.execute(
+            """INSERT INTO recommendations
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
+                confidence, evidence_event_ids)
+               VALUES (?, 'accepted', 'zero_trust', 'IoT|Server|A|B|17|123', 'x',
+                       '{"action": "allow", "rule_source": "IoT", "rule_destination": "the Pi-hole"}',
+                       'low', ?)""",
+            (time.time(), jsonlib.dumps([1])),
+        )
+        conn.execute(
+            "INSERT INTO unifi_capability_report (checked_at, reachable, site_id, capabilities_json) "
+            "VALUES (?, 1, 'site-1', '[]')",
+            (time.time(),),
+        )
+        conn.commit()
+        rec_id = conn.execute("SELECT id FROM recommendations WHERE category = 'zero_trust'").fetchone()[0]
+
+    monkeypatch.setattr(
+        routes_recommendations,
+        "create_policy",
+        lambda client, site_id, payload: {"id": "created-policy-id", **payload},
+    )
+
+    resp = client.post(f"/recommendations/{rec_id}/apply")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body == {"status": "applied", "policy_id": "created-policy-id"}
+
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        row = conn.execute(
+            "SELECT applied_policy_id, applied_at FROM recommendations WHERE id = ?", (rec_id,)
+        ).fetchone()
+        assert row[0] == "created-policy-id"
+        assert row[1] is not None
+
+
+def test_apply_refuses_a_duplicate_when_a_covering_policy_already_exists(tmp_path, monkeypatch):
+    import json as jsonlib
+
+    from app.db import connect
+
+    client = _client_apply_gated_open(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            """INSERT INTO recommendations
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
+                confidence, evidence_event_ids)
+               VALUES (?, 'accepted', 'zero_trust', 'IoT|Server|A|B|17|123', 'x',
+                       '{"action": "allow"}', 'low', '[]')""",
+            (time.time(),),
+        )
+        conn.execute(
+            "INSERT INTO unifi_policies (id, name, enabled, action, protocol, raw_json, fetched_at) "
+            "VALUES ('p1', 'Already there', 1, 'ALLOW', 'udp', ?, ?)",
+            (
+                jsonlib.dumps(
+                    {
+                        "action": {"type": "ALLOW"},
+                        "destination": {"trafficFilter": {"portFilter": {"items": [{"type": "PORT_NUMBER", "value": 123}]}}},
+                    }
+                ),
+                time.time(),
+            ),
+        )
+        conn.commit()
+        rec_id = conn.execute("SELECT id FROM recommendations WHERE category = 'zero_trust'").fetchone()[0]
+
+    called = []
+    monkeypatch.setattr(routes_recommendations, "create_policy", lambda *a, **k: called.append(1))
+
+    resp = client.post(f"/recommendations/{rec_id}/apply")
+    assert resp.status_code == 409
+    assert called == []
+
+
+def test_apply_surfaces_a_real_unifi_error_without_marking_it_applied(tmp_path, monkeypatch):
+    import json as jsonlib
+
+    from app.db import connect
+    from app.unifi.client import UnifiError
+
+    client = _client_apply_gated_open(tmp_path, monkeypatch)
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, src_port, dst_port, proto, iface_in, iface_out, action, received_at) "
+            "VALUES (?, '192.168.10.5', '192.168.20.9', 51000, 123, 17, 'br1', 'br2', 'ALLOW', ?)",
+            (time.time(), time.time()),
+        )
+        conn.execute(
+            "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) VALUES "
+            "('net-iot', 'IoT', 1, NULL, ?, ?)",
+            (jsonlib.dumps({"zoneId": "zone-iot"}), time.time()),
+        )
+        conn.execute(
+            "INSERT INTO unifi_networks (id, name, vlan_id, subnet, raw_json, fetched_at) VALUES "
+            "('net-server', 'Server', 2, NULL, ?, ?)",
+            (jsonlib.dumps({"zoneId": "zone-server"}), time.time()),
+        )
+        conn.execute(
+            """INSERT INTO recommendations
+               (created_at, status, category, pattern_signature, pattern_summary_text, structured_json,
+                confidence, evidence_event_ids)
+               VALUES (?, 'accepted', 'zero_trust', 'IoT|Server|A|B|17|123', 'x',
+                       '{"action": "allow"}', 'low', ?)""",
+            (time.time(), jsonlib.dumps([1])),
+        )
+        conn.execute(
+            "INSERT INTO unifi_capability_report (checked_at, reachable, site_id, capabilities_json) "
+            "VALUES (?, 1, 'site-1', '[]')",
+            (time.time(),),
+        )
+        conn.commit()
+        rec_id = conn.execute("SELECT id FROM recommendations WHERE category = 'zero_trust'").fetchone()[0]
+
+    def _boom(client, site_id, payload):
+        raise UnifiError("403 Forbidden for /sites/site-1/firewall/policies: insufficient scope")
+
+    monkeypatch.setattr(routes_recommendations, "create_policy", _boom)
+
+    resp = client.post(f"/recommendations/{rec_id}/apply")
+    assert resp.status_code == 502
+    assert "insufficient scope" in resp.get_json()["error"]
+
+    with client.application.app_context():
+        conn = connect(client.application.config["ZTA_CONFIG"].db_path)
+        row = conn.execute("SELECT applied_at FROM recommendations WHERE id = ?", (rec_id,)).fetchone()
+        assert row[0] is None

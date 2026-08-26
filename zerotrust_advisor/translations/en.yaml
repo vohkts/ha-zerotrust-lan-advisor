@@ -46,7 +46,10 @@ configuration:
     description: Leave off for a local UDM's self-signed certificate (the default). Only enable if the console has a certificate your system already trusts.
   unifi_apply_mode:
     name: UniFi rule apply mode
-    description: "Reserved for a future stage: whether zero-trust rules would be written to UniFi manually by you or automatically by the add-on. Not yet functional — the add-on never writes to UniFi today, regardless of this setting."
+    description: "\"manual\" is the only mode with any real behavior: a human-confirmed Apply button on an accepted recommendation, one rule at a time — see STAGE3_APPLY_GOVERNANCE.md. \"automatic\" is stored but does nothing; unattended apply isn't built."
+  unifi_apply_acknowledged:
+    name: I understand this can write to my firewall
+    description: "Off by default. One of three independent conditions required before the Apply button appears anywhere — see \"UniFi rule apply mode\" and STAGE3_APPLY_GOVERNANCE.md. Turning this on by itself changes nothing else; it only removes one of the three gates."
   display_timezone_utc:
     name: Display times in UTC
     description: Off by default — timestamps use Home Assistant's own configured time zone. Turn on to show UTC instead.

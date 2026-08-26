@@ -18,12 +18,18 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 
-from flask import Blueprint, current_app, jsonify, render_template
+from flask import Blueprint, current_app, jsonify, render_template, request
 
+from app.analysis.network_map import build_network_map, load_unifi_networks, load_unifi_vlan_names
 from app.analysis.rule_match import find_covering_policy, load_parsed_policies
 from app.analysis.runner import is_running, run_analysis_now
+from app.config import read_secret
 from app.db import connect
+from app.unifi import sync
+from app.unifi.apply import ApplyNotPossible, build_policy_payload, create_policy
+from app.unifi.client import UnifiClientAPI, UnifiError, UnifiUnreachable
 from app.web.db_context import get_db
 
 logger = logging.getLogger(__name__)
@@ -52,12 +58,14 @@ def _implemented_status(pattern_signature: str, real_policies: list) -> tuple[bo
 
 def _load_items(conn, category: str, real_policies: list | None = None):
     rows = conn.execute(
-        """SELECT id, created_at, status, pattern_summary_text, structured_json, confidence, pattern_signature
+        """SELECT id, created_at, status, pattern_summary_text, structured_json, confidence, pattern_signature,
+                  applied_at, applied_policy_id
            FROM recommendations WHERE category = ? ORDER BY created_at DESC""",
         (category,),
     ).fetchall()
     items = []
     for row in rows:
+        applied_policy_id = row[8]
         item = {
             "id": row[0],
             "created_at": row[1],
@@ -65,19 +73,117 @@ def _load_items(conn, category: str, real_policies: list | None = None):
             "summary": row[3],
             "structured": json.loads(row[4]),
             "confidence": row[5],
+            "applied_at": row[7],
             "implemented": None,
             "matched_policy_id": None,
             "matched_policy_name": None,
         }
-        # Only worth checking for recommendations the user has actually
-        # accepted -- a pending or dismissed one being "implemented" or
-        # not isn't a meaningful question yet.
-        if real_policies is not None and item["status"] == "accepted":
+        if applied_policy_id:
+            # Applied through this add-on itself (Stage 3) -- a direct,
+            # exact lookup by the real id UniFi returned, not the
+            # port-based best-effort match everything else here uses.
+            item["implemented"] = True
+            item["matched_policy_id"] = applied_policy_id
+        elif real_policies is not None and item["status"] == "accepted":
+            # Only worth checking for recommendations the user has
+            # actually accepted -- a pending or dismissed one being
+            # "implemented" or not isn't a meaningful question yet.
             item["implemented"], item["matched_policy_id"], item["matched_policy_name"] = _implemented_status(
                 row[6], real_policies
             )
         items.append(item)
     return items
+
+
+def _apply_gate_error(config) -> str | None:
+    """None if all three independent conditions from
+    STAGE3_APPLY_GOVERNANCE.md §5 are met; otherwise the specific reason
+    Apply isn't reachable at all right now. Checked on every apply-related
+    request, not just once at page load -- a setting can change between
+    opening the page and clicking the button."""
+    if config.unifi_apply_mode != "manual":
+        return "UniFi rule apply mode isn't set to \"manual\" in Settings."
+    if not config.unifi_apply_acknowledged:
+        return "You haven't acknowledged that this add-on can write to your firewall yet (Settings)."
+    if not config.unifi_enabled or not config.unifi_host:
+        return "The UniFi integration isn't enabled/configured (Settings)."
+    if not read_secret("unifi_api_key"):
+        return "No UniFi API key is configured (Settings)."
+    return None
+
+
+def _load_applicable_recommendation(conn, rec_id: int) -> tuple[dict | None, str | None]:
+    """(row_as_dict, error). error is a plain-English reason this specific
+    recommendation can't be applied -- distinct from _apply_gate_error,
+    which is about whether Apply is reachable *at all* right now."""
+    row = conn.execute(
+        """SELECT status, category, pattern_signature, structured_json, evidence_event_ids, applied_at
+           FROM recommendations WHERE id = ?""",
+        (rec_id,),
+    ).fetchone()
+    if row is None:
+        return None, "not_found"
+    status, category, pattern_signature, structured_json, evidence_event_ids, applied_at = row
+    if category != "zero_trust":
+        return None, "Only zero-trust rule recommendations can be applied."
+    if applied_at:
+        return None, "This recommendation has already been applied."
+    if status != "accepted":
+        return None, "Only an accepted recommendation can be applied — accept it first."
+    return {
+        "pattern_signature": pattern_signature,
+        "structured": json.loads(structured_json),
+        "evidence_event_ids": json.loads(evidence_event_ids or "[]"),
+    }, None
+
+
+def _build_payload(conn, rec: dict) -> tuple[dict, str]:
+    """(payload, rule_name). Real IPs behind the recommendation are
+    re-derived from its stored evidence_event_ids, the same way
+    engine.py's real-identifiers option does -- never stored on the
+    recommendation itself. Raises ApplyNotPossible (from apply.py) when
+    either side can't be confidently resolved against the real,
+    currently-synced UniFi ruleset."""
+    parts = rec["pattern_signature"].split("|")
+    if len(parts) != 6:
+        raise ApplyNotPossible("This recommendation's pattern can't be parsed anymore.")
+    _src_label, _dst_label, _src_class, _dst_class, proto_s, port_s = parts
+    proto = int(proto_s)
+    port = None if port_s == "None" else int(port_s)
+
+    event_ids = rec["evidence_event_ids"]
+    src_ips: list[str] = []
+    dst_ips: list[str] = []
+    if event_ids:
+        placeholders = ",".join("?" * len(event_ids))
+        rows = conn.execute(
+            f"SELECT src_ip, dst_ip FROM events_firewall WHERE id IN ({placeholders})",  # noqa: S608 -- placeholders only
+            event_ids,
+        ).fetchall()
+        src_ips = sorted({r[0] for r in rows})
+        dst_ips = sorted({r[1] for r in rows})
+
+    since = time.time() - 30 * 86400
+    network_map = build_network_map(conn, since=since)
+    unifi_networks = load_unifi_networks(conn)
+    vlan_names = load_unifi_vlan_names(conn)
+
+    structured = rec["structured"]
+    name = f"ZTA: {structured.get('rule_source', '?')} -> {structured.get('rule_destination', '?')}"[:255]
+
+    payload = build_policy_payload(
+        conn,
+        name=name,
+        action=structured.get("action", "allow"),
+        proto=proto,
+        port=port,
+        src_ips=src_ips,
+        dst_ips=dst_ips,
+        network_map=network_map,
+        unifi_networks=unifi_networks,
+        vlan_names=vlan_names,
+    )
+    return payload, name
 
 
 @recommendations_bp.route("/recommendations")
@@ -120,6 +226,81 @@ def update_recommendation(rec_id: int, action: str):
     conn.execute("UPDATE recommendations SET status = ? WHERE id = ?", (status, rec_id))
     conn.commit()
     return jsonify({"status": status})
+
+
+@recommendations_bp.route("/recommendations/<int:rec_id>/apply-preview")
+def apply_preview(rec_id: int):
+    """Read-only: builds and returns the exact payload Apply would send,
+    without sending it. See STAGE3_APPLY_GOVERNANCE.md §3 step 3 — the UI
+    must show this literal payload, not just the recommendation's prose,
+    before a human can confirm anything."""
+    config = current_app.config["ZTA_CONFIG"]
+    gate_error = _apply_gate_error(config)
+    if gate_error:
+        return jsonify({"error": gate_error}), 403
+
+    conn = get_db()
+    rec, error = _load_applicable_recommendation(conn, rec_id)
+    if error:
+        return jsonify({"error": error}), 404 if error == "not_found" else 400
+
+    try:
+        payload, name = _build_payload(conn, rec)
+    except ApplyNotPossible as exc:
+        return jsonify({"error": str(exc)}), 422
+
+    return jsonify({"name": name, "payload": payload})
+
+
+@recommendations_bp.route("/recommendations/<int:rec_id>/apply", methods=["POST"])
+def apply_recommendation(rec_id: int):
+    """The one place in this add-on's web layer that can trigger a write
+    to UniFi. Synchronous, not fire-and-poll like the LLM calls elsewhere
+    — see governance §3 step 6: a write this consequential must not
+    happen invisibly while the user is looking at something else. Always
+    re-derives and re-validates the payload itself rather than trusting
+    anything the client could have sent, and re-checks the live ruleset
+    for a newly-created duplicate immediately before sending."""
+    config = current_app.config["ZTA_CONFIG"]
+    gate_error = _apply_gate_error(config)
+    if gate_error:
+        return jsonify({"error": gate_error}), 403
+
+    conn = get_db()
+    rec, error = _load_applicable_recommendation(conn, rec_id)
+    if error:
+        return jsonify({"error": error}), 404 if error == "not_found" else 400
+
+    real_policies = load_parsed_policies(conn)
+    parts = rec["pattern_signature"].split("|")
+    port = None if len(parts) != 6 or parts[5] == "None" else int(parts[5])
+    if find_covering_policy(real_policies, port) is not None:
+        return jsonify({"error": "A matching rule already exists — refusing to create a duplicate."}), 409
+
+    try:
+        payload, _name = _build_payload(conn, rec)
+    except ApplyNotPossible as exc:
+        return jsonify({"error": str(exc)}), 422
+
+    probe = sync.load_probe_report(conn)
+    site_id = probe["site_id"] if probe else None
+    if not site_id:
+        return jsonify({"error": "No UniFi site is on record — run a Test Connection from Settings first."}), 400
+
+    client = UnifiClientAPI(host=config.unifi_host, api_key=read_secret("unifi_api_key"), verify_tls=config.unifi_verify_tls)
+    try:
+        created = create_policy(client, site_id, payload)
+    except (UnifiError, UnifiUnreachable) as exc:
+        logger.warning("apply failed for recommendation %s: %s", rec_id, exc)
+        return jsonify({"error": str(exc)}), 502
+
+    policy_id = created.get("id")
+    conn.execute(
+        "UPDATE recommendations SET applied_at = ?, applied_policy_id = ? WHERE id = ?",
+        (time.time(), policy_id, rec_id),
+    )
+    conn.commit()
+    return jsonify({"status": "applied", "policy_id": policy_id})
 
 
 @recommendations_bp.route("/recommendations/progress")

@@ -233,6 +233,30 @@ dialog#rule-detail-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
 dialog#rule-detail-dialog h3 { margin-top: 0; }
 #rule-detail-close { margin-top: 1rem; }
 
+dialog#apply-preview-dialog {
+  max-width: 620px;
+  width: 90%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--fg);
+  padding: 1.25rem;
+}
+dialog#apply-preview-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+dialog#apply-preview-dialog h3 { margin-top: 0; }
+.apply-payload {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  max-height: 40vh;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.apply-preview-actions { margin-top: 1rem; display: flex; gap: 0.6rem; justify-content: flex-end; }
+
 .warning-list { list-style: none; padding: 0; margin: 0; }
 .warning {
   padding: 0.6rem 0.8rem;

@@ -141,6 +141,9 @@
     </p>
     {% endif %}
     <div class="actions">
+      {% if item.category == 'zero_trust' and item.status == 'accepted' and not item.applied_at %}
+      <button type="button" class="apply-link" data-rec-id="{{ item.id }}">Apply&hellip;</button>
+      {% endif %}
       <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/reopen">Reopen</button>
     </div>
   </article>
@@ -152,5 +155,13 @@
 <dialog id="rule-detail-dialog">
   <div id="rule-detail-content"></div>
   <button type="button" id="rule-detail-close">Close</button>
+</dialog>
+
+<dialog id="apply-preview-dialog">
+  <div id="apply-preview-content"></div>
+  <div class="apply-preview-actions">
+    <button type="button" id="apply-preview-cancel" class="btn-secondary">Cancel</button>
+    <button type="button" id="apply-preview-confirm" hidden>Apply this rule</button>
+  </div>
 </dialog>
 {% endblock %}

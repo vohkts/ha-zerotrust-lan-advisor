@@ -281,14 +281,22 @@
 
     <label>Firewall rule apply mode
       <select name="unifi_apply_mode">
-        <option value="manual" {% if config.unifi_apply_mode == 'manual' %}selected{% endif %}>I'll write rules myself &mdash; the add-on only recommends</option>
-        <option value="automatic" {% if config.unifi_apply_mode == 'automatic' %}selected{% endif %}>Let the add-on write accepted rules to UniFi</option>
+        <option value="manual" {% if config.unifi_apply_mode == 'manual' %}selected{% endif %}>Manual &mdash; I confirm every rule myself before it's written</option>
+        <option value="automatic" {% if config.unifi_apply_mode == 'automatic' %}selected{% endif %}>Automatic (not built &mdash; behaves the same as Manual with Apply disabled)</option>
       </select>
     </label>
+    <label>
+      <input type="checkbox" name="unifi_apply_acknowledged" {% if config.unifi_apply_acknowledged %}checked{% endif %}>
+      I understand this add-on can create firewall rules on my UniFi console
+    </label>
     <p class="hint">
-      <strong>Not yet functional.</strong> This is reserved for a future stage — whichever option is
-      selected, this add-on never writes anything to UniFi today. Recommendations only ever reach
-      "accepted" in this add-on's own local bookkeeping.
+      Off by default. See <code>STAGE3_APPLY_GOVERNANCE.md</code> in this add-on's own files for the
+      full contract. In short: with "Manual" mode and this box both checked, an accepted zero-trust
+      recommendation gets an <strong>Apply</strong> button. Clicking it always shows the exact rule
+      that would be created first, and nothing is written until you confirm that specific screen.
+      This add-on only ever <em>creates</em> a new, narrow rule &mdash; it never modifies, disables,
+      reorders, or deletes anything, including rules it created itself. "Automatic" mode is stored
+      but does nothing; unattended apply isn't built, and checking this box alone doesn't change that.
     </p>
   </fieldset>
 

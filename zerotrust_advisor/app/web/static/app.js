@@ -748,3 +748,91 @@ if (ruleDetailDialog) {
     );
   });
 }
+
+// Stage 3 apply flow (see STAGE3_APPLY_GOVERNANCE.md): "Apply…" always
+// opens a preview of the exact payload first — confirming and previewing
+// are deliberately two separate steps, never collapsible into one click.
+// Nothing is written to UniFi until the confirm button inside this
+// dialog is clicked; loading the preview itself makes no write call.
+const applyDialog = document.getElementById("apply-preview-dialog");
+if (applyDialog) {
+  const contentEl = document.getElementById("apply-preview-content");
+  const confirmBtn = document.getElementById("apply-preview-confirm");
+  const cancelBtn = document.getElementById("apply-preview-cancel");
+  let pendingRecId = null;
+
+  function showApplyMessage(text) {
+    contentEl.replaceChildren();
+    const p = document.createElement("p");
+    p.textContent = text;
+    contentEl.appendChild(p);
+    confirmBtn.hidden = true;
+  }
+
+  cancelBtn.addEventListener("click", () => applyDialog.close());
+  applyDialog.addEventListener("click", (event) => {
+    if (event.target === applyDialog) applyDialog.close(); // click on the backdrop itself
+  });
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest(".apply-link[data-rec-id]");
+    if (!button) return;
+
+    pendingRecId = button.dataset.recId;
+    showApplyMessage("Loading preview…");
+    applyDialog.showModal();
+
+    let data;
+    try {
+      data = await (await fetch(`recommendations/${pendingRecId}/apply-preview`)).json();
+    } catch (err) {
+      showApplyMessage(`Failed to load preview: ${err.message}`);
+      return;
+    }
+    if (data.error) {
+      showApplyMessage(data.error);
+      return;
+    }
+
+    contentEl.replaceChildren();
+    const heading = document.createElement("h3");
+    heading.textContent = data.name;
+    contentEl.appendChild(heading);
+
+    const warn = document.createElement("p");
+    warn.className = "chip chip-warn";
+    warn.textContent = "This will create a new firewall rule on your UniFi console.";
+    contentEl.appendChild(warn);
+
+    const pre = document.createElement("pre");
+    pre.className = "apply-payload";
+    pre.textContent = JSON.stringify(data.payload, null, 2);
+    contentEl.appendChild(pre);
+
+    confirmBtn.hidden = false;
+    confirmBtn.disabled = false;
+  });
+
+  confirmBtn.addEventListener("click", async () => {
+    if (!pendingRecId) return;
+    const recId = pendingRecId;
+    confirmBtn.disabled = true;
+    showApplyMessage("Applying…");
+
+    let resp, data;
+    try {
+      resp = await fetch(`recommendations/${recId}/apply`, { method: "POST" });
+      data = await resp.json();
+    } catch (err) {
+      showApplyMessage(`Failed: ${err.message}`);
+      return;
+    }
+    if (!resp.ok) {
+      showApplyMessage(`Failed: ${data.error || resp.statusText}`);
+      return;
+    }
+
+    showApplyMessage(`Applied — new rule id ${data.policy_id}. Reloading…`);
+    setTimeout(() => window.location.reload(), 1200);
+  });
+}

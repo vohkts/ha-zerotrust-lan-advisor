@@ -44,7 +44,7 @@ def _config(**overrides):
         unifi_enabled=False,
         unifi_host="",
         unifi_verify_tls=False,
-        unifi_apply_mode="manual",
+        unifi_apply_mode="manual", unifi_apply_acknowledged=False,
         display_timezone_utc=False,
         ignore_unifi_console_traffic=True,
     )

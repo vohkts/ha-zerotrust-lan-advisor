@@ -159,6 +159,41 @@ def test_connect_migrates_an_existing_identities_table_missing_llm_guess_columns
     assert row[1] is None
 
 
+def test_connect_migrates_an_existing_recommendations_table_missing_applied_columns(tmp_path):
+    db_path = tmp_path / "zerotrust.db"
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute(
+        """CREATE TABLE recommendations (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               created_at REAL NOT NULL,
+               status TEXT NOT NULL DEFAULT 'pending',
+               category TEXT NOT NULL DEFAULT 'zero_trust',
+               pattern_signature TEXT NOT NULL UNIQUE,
+               pattern_summary_text TEXT NOT NULL,
+               structured_json TEXT NOT NULL,
+               llm_model_used TEXT,
+               confidence TEXT,
+               evidence_event_ids TEXT
+           )"""
+    )
+    old_conn.execute(
+        "INSERT INTO recommendations (created_at, pattern_signature, pattern_summary_text, structured_json) "
+        "VALUES (1700000000, 'sig1', 'summary', '{}')"
+    )
+    old_conn.commit()
+    old_conn.close()
+
+    conn = db.connect(db_path)  # must not raise
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(recommendations)")}
+    assert {"applied_at", "applied_policy_id"} <= columns
+
+    row = conn.execute("SELECT pattern_summary_text, applied_at, applied_policy_id FROM recommendations").fetchone()
+    assert row[0] == "summary"  # the old row survived intact
+    assert row[1] is None
+    assert row[2] is None
+
+
 def test_connect_is_idempotent_on_an_already_migrated_database(tmp_path):
     db_path = tmp_path / "zerotrust.db"
     db.connect(db_path)
