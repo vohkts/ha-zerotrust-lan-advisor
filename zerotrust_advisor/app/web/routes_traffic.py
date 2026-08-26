@@ -33,6 +33,7 @@ from app.analysis.network_map import (
     load_unifi_networks,
     resolve_label,
     set_friendly_name,
+    guessed_gateway_ips,
     unifi_gateway_ips,
     unifi_network_for_ip,
 )
@@ -221,7 +222,7 @@ def _build_host_rows(network_map, friendly_names, manual_labels, identities, eve
             last_seen.setdefault(ip, e.ts)
             first_seen[ip] = e.ts  # overwritten every time; final value is the oldest in-window
 
-    gateway_ips = unifi_gateway_ips(unifi_networks)
+    gateway_ips = unifi_gateway_ips(unifi_networks) | guessed_gateway_ips(network_map)
     rows = []
     for ip, count in counts.most_common(_TOP_HOSTS_LIMIT):
         info = identities.get(ip) or {}
@@ -355,7 +356,7 @@ def host_detail():
     unifi_networks = load_unifi_networks(conn)
     identities = _load_identities(conn)
     info = identities.get(ip) or {}
-    is_gateway = ip in unifi_gateway_ips(unifi_networks)
+    is_gateway = ip in (unifi_gateway_ips(unifi_networks) | guessed_gateway_ips(network_map))
 
     console_host = config.unifi_host if config.ignore_unifi_console_traffic else None
     detail = load_host_detail(

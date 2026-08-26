@@ -187,6 +187,22 @@ def test_host_rows_label_a_subnet_gateway_instead_of_unclassified():
     assert row["name"] == "Network gateway"
 
 
+def test_host_rows_label_a_gateway_from_traffic_guess_without_unifi_subnet_data():
+    # Confirmed live against a real production console: the UniFi
+    # Integration API's network objects carried *no* subnet field at all,
+    # on any network, on that controller version -- unifi_gateway_ips()
+    # alone is a no-op there. This add-on's own traffic-derived network
+    # discovery (NETWORK_MAP, already computed for every page load) has to
+    # carry the gateway-labeling fix on its own, with no UniFi data at all.
+    events = [
+        *_events(),
+        _Event(ts=150, src_ip="192.168.10.1", dst_ip="192.168.10.5", proto=6, dst_port=443),
+    ]
+    rows, _hidden = _build_host_rows(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, events)
+    row = next(r for r in rows if r["ip"] == "192.168.10.1")
+    assert row["device_class"] == "Network gateway"
+
+
 def test_top_flows_aggregates_by_full_key_and_counts_occurrences():
     top_flows, _ = _build_flow_tables(NETWORK_MAP, FRIENDLY_NAMES, NO_MANUAL_LABELS, {}, _events())
     assert len(top_flows) == 2  # two distinct (src,dst,proto,port) combinations

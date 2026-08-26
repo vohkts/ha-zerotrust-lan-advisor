@@ -220,11 +220,36 @@ def unifi_gateway_ips(unifi_networks: list[UnifiNetworkInfo]) -> set[str]:
     UniFi controller itself provisions): the gateway is the first usable
     host address in the subnet. Every VLAN has one, and none of them are
     "a device on your network" in any inventory sense -- reported live as
-    "every subnet's .1 shows up as an unknown device"."""
+    "every subnet's .1 shows up as an unknown device".
+
+    In practice (confirmed against a real production console) not every
+    UniFi Network Application version returns a subnet on this endpoint at
+    all -- see guessed_gateway_ips() below for the traffic-derived
+    fallback that doesn't depend on it."""
     ips: set[str] = set()
     for net in unifi_networks:
         try:
             ips.add(str(next(net.network.hosts())))
+        except (StopIteration, ValueError):
+            continue
+    return ips
+
+
+def guessed_gateway_ips(network_map: NetworkMap) -> set[str]:
+    """Same idea as unifi_gateway_ips(), but from this add-on's own
+    traffic-derived network discovery instead of the UniFi API -- works
+    regardless of whether the integration is configured, or (confirmed
+    live: a real console's Integration API network objects carried no
+    subnet field whatsoever, on any network, so unifi_gateway_ips() alone
+    was a no-op there) whether the API actually exposes subnet data.
+    Every DiscoveredNetwork with a guessed /24-ish range is treated the
+    same way: first usable address = likely gateway."""
+    ips: set[str] = set()
+    for net in network_map.networks:
+        if not net.guessed_range:
+            continue
+        try:
+            ips.add(str(next(ipaddress.ip_network(net.guessed_range, strict=False).hosts())))
         except (StopIteration, ValueError):
             continue
     return ips

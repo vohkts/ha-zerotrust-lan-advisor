@@ -40,6 +40,14 @@ class HostDetail:
     recent_flows: list[dict] = field(default_factory=list)  # [{src, dst, proto, port, port_hint, count}]
 
 
+def _query_one_side(conn: sqlite3.Connection, table: str, ts_col: str, side_col: str, ip: str, since: float, limit: int):
+    return conn.execute(
+        f"SELECT {ts_col}, src_ip, dst_ip, proto, dst_port FROM {table} "  # noqa: S608 -- table/columns are fixed literals, never user input
+        f"WHERE {side_col} = ? AND {ts_col} >= ? ORDER BY {ts_col} DESC LIMIT ?",
+        (ip, since, limit),
+    ).fetchall()
+
+
 def load_host_detail(
     conn: sqlite3.Connection,
     ip: str,
@@ -50,27 +58,34 @@ def load_host_detail(
     netflow_port: int = 2055,
     unifi_console_host: str | None = None,
 ) -> HostDetail:
-    fw_rows = conn.execute(
-        "SELECT ts, src_ip, dst_ip, proto, dst_port FROM events_firewall "
-        "WHERE ts >= ? AND (src_ip = ? OR dst_ip = ?) ORDER BY ts DESC LIMIT ?",
-        (since, ip, ip, _MAX_ROWS),
-    ).fetchall()
+    # Two separately-indexed queries (one per side) instead of one
+    # "src_ip = ? OR dst_ip = ?" -- confirmed live that this still took
+    # 15s+ even after adding a plain index on each column, because ORDER
+    # BY ts still has to sort *every* match before LIMIT applies for an OR
+    # condition. A compound (ip, ts) index per side lets each query alone
+    # scan already in ts order and stop as soon as it has _MAX_ROWS; the
+    # merge-and-re-slice below is a cheap in-memory step over at most
+    # 2 * _MAX_ROWS rows, not a query the database has to plan around.
+    fw_rows = _query_one_side(conn, "events_firewall", "ts", "src_ip", ip, since, _MAX_ROWS)
+    fw_rows += _query_one_side(conn, "events_firewall", "ts", "dst_ip", ip, since, _MAX_ROWS)
+    fw_rows.sort(key=lambda r: r[0], reverse=True)
+    event_count_capped = len(fw_rows) >= _MAX_ROWS
+    fw_rows = fw_rows[:_MAX_ROWS]
     fw_rows = [
         r for r in fw_rows
         if not is_own_receiver_traffic(r[2], r[4], host_ip, syslog_port, netflow_port)
         and not (unifi_console_host and (r[1] == unifi_console_host or r[2] == unifi_console_host))
     ]
 
-    flow_rows = conn.execute(
-        "SELECT ts_start, src_ip, dst_ip, proto, dst_port FROM events_flow "
-        "WHERE ts_start >= ? AND (src_ip = ? OR dst_ip = ?) ORDER BY ts_start DESC LIMIT ?",
-        (since, ip, ip, _MAX_ROWS),
-    ).fetchall()
+    flow_rows = _query_one_side(conn, "events_flow", "ts_start", "src_ip", ip, since, _MAX_ROWS)
+    flow_rows += _query_one_side(conn, "events_flow", "ts_start", "dst_ip", ip, since, _MAX_ROWS)
+    flow_rows.sort(key=lambda r: r[0], reverse=True)
+    event_count_capped = event_count_capped or len(flow_rows) >= _MAX_ROWS
+    flow_rows = flow_rows[:_MAX_ROWS]
     if unifi_console_host:
         flow_rows = [r for r in flow_rows if r[1] != unifi_console_host and r[2] != unifi_console_host]
 
     events = sorted([*fw_rows, *flow_rows], key=lambda e: e[0], reverse=True)
-    event_count_capped = len(fw_rows) >= _MAX_ROWS or len(flow_rows) >= _MAX_ROWS
 
     if not events:
         return HostDetail(ip=ip, event_count=0, event_count_capped=False, first_seen=None, last_seen=None)
