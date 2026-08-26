@@ -30,6 +30,7 @@ DEFAULTS = {
     "llm_mode": "local",
     "llm_remote_base_url": "",
     "llm_model_path": "",
+    "llm_send_real_identifiers": False,
     "unifi_enabled": False,
     "unifi_host": "",
     "unifi_verify_tls": False,
@@ -52,6 +53,15 @@ class Config:
     llm_mode: str
     llm_remote_base_url: str
     llm_model_path: str
+    # Off by default: every LLM prompt (local or remote) speaks only in
+    # device classes and network labels, never real hostnames/IPs/MACs --
+    # see app/llm/prompts.py. Turning this on sends real identifiers too,
+    # for anyone whose configured endpoint (local or remote) never leaves
+    # their own network, e.g. a self-hosted Ollama instance, and wants
+    # more specific recommendations in exchange. Meaningless, and
+    # dangerous, if the endpoint is an actual third-party service --
+    # the Settings copy says so.
+    llm_send_real_identifiers: bool
     # Stage 2 (UniFi UDM-only, optional, off by default — see app/unifi/).
     # unifi_apply_mode is Stage 3 prep: "manual" is the only mode with any
     # real behavior today. "automatic" is stored and shown in Settings but
@@ -102,6 +112,7 @@ def load_config() -> Config:
         llm_mode=str(raw["llm_mode"]),
         llm_remote_base_url=str(raw["llm_remote_base_url"]),
         llm_model_path=str(raw["llm_model_path"]),
+        llm_send_real_identifiers=bool(raw["llm_send_real_identifiers"]),
         unifi_enabled=bool(raw["unifi_enabled"]),
         unifi_host=str(raw["unifi_host"]),
         unifi_verify_tls=bool(raw["unifi_verify_tls"]),

@@ -443,9 +443,12 @@ def host_detail_guess():
         conn = connect(config.db_path)
         try:
             info = conn.execute(
-                "SELECT vendor FROM identities WHERE ip = ? ORDER BY last_seen DESC LIMIT 1", (ip,)
+                "SELECT vendor, hostname FROM identities WHERE ip = ? ORDER BY last_seen DESC LIMIT 1", (ip,)
             ).fetchone()
             vendor = info[0] if info else None
+            real_identifier = None
+            if config.llm_send_real_identifiers:
+                real_identifier = (info[1] if info else None) or ip
             console_host = config.unifi_host if config.ignore_unifi_console_traffic else None
             detail = load_host_detail(
                 conn, ip, since,
@@ -469,7 +472,7 @@ def host_detail_guess():
                 for partner_ip, count in detail.top_partners
             ]
 
-            messages = build_device_guess_messages(vendor, detail.event_count, top_ports, top_partners)
+            messages = build_device_guess_messages(vendor, detail.event_count, top_ports, top_partners, real_identifier)
             base_url, api_key = llm_base_url(config)
             reply = chat_completion(base_url, messages, api_key=api_key, response_format=DEVICE_GUESS_SCHEMA)
             guess = json.loads(reply).get("guess", "").strip()

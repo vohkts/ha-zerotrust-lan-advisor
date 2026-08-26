@@ -64,11 +64,13 @@ _SYSTEM_PROMPT = (
     "rule_source, rule_destination and rule_protocol_port must be short, concrete fragments (e.g. "
     "'devices on the IoT network', 'the Pi-hole on the Home network', 'udp/53') that could be read "
     "straight out of your own suggested_rule_scope sentence — they exist so the rule can be shown "
-    "as a compact chip alongside the explanation. You are never told real device names, IPs or "
-    "MACs, only device classes, a confidence level for each, and how many distinct devices are "
-    "behind each side — reflect any real uncertainty in your answer rather than stating a guess as "
-    "fact. If you don't recognize the pattern, say so honestly instead of inventing a "
-    "plausible-sounding purpose."
+    "as a compact chip alongside the explanation. Usually you're only told device classes and "
+    "network labels, never real identifiers — reflect that uncertainty rather than stating a guess "
+    "as fact. Occasionally (only when the user has explicitly opted in) you'll be given real "
+    "hostnames or IP addresses instead of just classes for one or both sides — when that happens, "
+    "use them directly and specifically (e.g. 'kitchen-echo', not 'the device') instead of the "
+    "generic class language. If you don't recognize the pattern, say so honestly instead of "
+    "inventing a plausible-sounding purpose."
 )
 
 
@@ -82,7 +84,14 @@ def build_recommendation_messages(
     pattern: CandidatePattern,
     src_confidence: str,
     dst_confidence: str,
+    src_identifiers: list[str] | None = None,
+    dst_identifiers: list[str] | None = None,
 ) -> list[dict]:
+    """`src_identifiers`/`dst_identifiers`: real hostnames (or IPs, for
+    whichever sample events had no known hostname) actually seen behind
+    this pattern -- only ever populated by the caller when the user has
+    explicitly opted into `llm_send_real_identifiers`. None/empty means
+    "stay pseudonymized", the default, regardless of LLM mode."""
     port_hint = describe_port(pattern.proto, pattern.dst_port)
     proto_name = PROTO_NAMES.get(pattern.proto, str(pattern.proto))
     port_desc = pattern.dst_port if pattern.dst_port is not None else "any"
@@ -98,6 +107,10 @@ def build_recommendation_messages(
     ]
     if port_hint:
         lines.append(f"This port is commonly associated with: {port_hint} (a hint, not a certainty).")
+    if src_identifiers:
+        lines.append(f"Real source device name(s) seen: {', '.join(src_identifiers)}.")
+    if dst_identifiers:
+        lines.append(f"Real destination device name(s) seen: {', '.join(dst_identifiers)}.")
 
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -120,12 +133,15 @@ DEVICE_GUESS_SCHEMA = {
 
 _DEVICE_GUESS_SYSTEM_PROMPT = (
     "You help a home network owner figure out what an unidentified device on their network "
-    "probably is, from nothing but its observed network behavior. You are never told the "
-    "device's real IP, MAC or hostname — only its network hardware vendor (if known) and a "
-    "summary of what it talks to. In 2-4 sentences, give your best guess at what kind of device "
-    "this is and explain what in the evidence points that way. If the evidence is too thin or "
-    "generic to guess anything specific, say so plainly rather than inventing a confident-sounding "
-    "answer — 'not enough information to guess' is a better answer than a wrong one."
+    "probably is, from its observed network behavior. Usually you're never told the device's "
+    "real IP, MAC or hostname — only its network hardware vendor (if known) and a summary of "
+    "what it talks to. Occasionally (only when the user has explicitly opted in) you'll also be "
+    "given its real hostname or IP — when given, treat it as a real clue (a hostname often names "
+    "the device or its purpose directly) rather than ignoring it. In 2-4 sentences, give your best "
+    "guess at what kind of device this is and explain what in the evidence points that way. If the "
+    "evidence is too thin or generic to guess anything specific, say so plainly rather than "
+    "inventing a confident-sounding answer — 'not enough information to guess' is a better answer "
+    "than a wrong one."
 )
 
 
@@ -134,12 +150,19 @@ def build_device_guess_messages(
     event_count: int,
     top_ports: list[tuple[str, int, str | None]],
     top_partners: list[tuple[str, str | None, int]],
+    real_identifier: str | None = None,
 ) -> list[dict]:
     """`top_ports`: (proto_name, port_or_None, port_hint_or_None) most
     common destinations this device connects to, each with an occurrence
     count already folded into the ordering. `top_partners`: (network_label,
-    device_class_or_None, count) — who it talks to, never a real IP/MAC."""
+    device_class_or_None, count) — who it talks to, never a real IP/MAC.
+    `real_identifier`: this device's own real hostname (or IP, if no
+    hostname is known) -- only ever populated when the user has explicitly
+    opted into `llm_send_real_identifiers`; None means stay pseudonymized,
+    the default regardless of LLM mode."""
     lines = [f"Vendor (from MAC OUI): {vendor or 'unknown'}", f"Total observed events: {event_count}"]
+    if real_identifier:
+        lines.append(f"Real device name/IP: {real_identifier}")
 
     if top_ports:
         lines.append("Most common destination ports:")

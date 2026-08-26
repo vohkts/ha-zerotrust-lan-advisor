@@ -187,6 +187,30 @@ def _purge_stale_receiver_recommendations(conn: sqlite3.Connection, config: Conf
     return removed
 
 
+def _real_identifiers_for_pattern(conn: sqlite3.Connection, pattern) -> tuple[list[str], list[str]]:
+    """Real hostnames (or IPs, when no hostname is known) actually seen
+    behind a pattern's sample events -- only ever called when the user has
+    explicitly opted into llm_send_real_identifiers (see
+    build_recommendation_messages' docstring). Bounded by however many
+    sample_event_ids grouping.py already kept, so at most a handful of
+    lookups regardless of how many times the pattern actually occurred."""
+    if not pattern.sample_event_ids:
+        return [], []
+    placeholders = ",".join("?" * len(pattern.sample_event_ids))
+    rows = conn.execute(
+        f"SELECT src_ip, dst_ip FROM events_firewall WHERE id IN ({placeholders})",  # noqa: S608 -- placeholders only, no interpolated values
+        pattern.sample_event_ids,
+    ).fetchall()
+
+    def _label(ip: str) -> str:
+        row = conn.execute(
+            "SELECT hostname FROM identities WHERE ip = ? ORDER BY last_seen DESC LIMIT 1", (ip,)
+        ).fetchone()
+        return row[0] if row and row[0] else ip
+
+    return sorted({_label(r[0]) for r in rows}), sorted({_label(r[1]) for r in rows})
+
+
 def _confidence_for(conn: sqlite3.Connection, device_class: str) -> str:
     row = conn.execute(
         "SELECT class_confidence FROM identities WHERE device_class = ? LIMIT 1", (device_class,)
@@ -250,7 +274,12 @@ def run_analysis_pass(conn: sqlite3.Connection, config: Config, now: float | Non
     for pattern in new_patterns:
         src_confidence = _confidence_for(conn, pattern.src_class)
         dst_confidence = _confidence_for(conn, pattern.dst_class)
-        messages = build_recommendation_messages(pattern, src_confidence, dst_confidence)
+        src_identifiers, dst_identifiers = (
+            _real_identifiers_for_pattern(conn, pattern) if config.llm_send_real_identifiers else ([], [])
+        )
+        messages = build_recommendation_messages(
+            pattern, src_confidence, dst_confidence, src_identifiers, dst_identifiers
+        )
         try:
             reply = chat_completion(
                 base_url, messages, api_key=api_key, response_format=RECOMMENDATION_SCHEMA

@@ -32,6 +32,9 @@ configuration:
   llm_model_path:
     name: Local model path
     description: Optional path under /data/models to a GGUF file, if you don't want the default model.
+  llm_send_real_identifiers:
+    name: Send real hostnames/IPs to the LLM
+    description: Off by default — every prompt speaks only in device classes ("iPhone", "Home Assistant") and network labels, never real hostnames, IPs or MACs, in either LLM mode. Only turn this on if your configured endpoint (local or remote) never leaves your own network, e.g. a self-hosted Ollama instance — never for an actual third-party service.
   unifi_enabled:
     name: Enable UniFi integration (UDM only)
     description: Optional, off by default. Enriches recommendations with read-only data from a UniFi UDM's Network Application — devices, clients, firewall zones and policies. Set the console IP and API key from the in-app Settings screen once enabled.

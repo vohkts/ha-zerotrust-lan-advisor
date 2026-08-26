@@ -40,7 +40,7 @@ def _config(**overrides):
         enable_mdns_classification=False,
         llm_mode="local",
         llm_remote_base_url="",
-        llm_model_path="",
+        llm_model_path="", llm_send_real_identifiers=False,
         unifi_enabled=False,
         unifi_host="",
         unifi_verify_tls=False,
@@ -330,6 +330,36 @@ def test_pattern_only_covered_by_a_broad_allow_all_rule_is_not_skipped(tmp_path,
 
     result = engine.run_analysis_pass(conn, _config())
     assert result.zero_trust_written == 1
+
+
+def test_real_identifiers_are_sent_only_when_explicitly_enabled(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    _seed_recurring_pattern(conn)
+    now = time.time()
+    conn.execute(
+        "INSERT INTO identities (device_key, ip, hostname, first_seen, last_seen) "
+        "VALUES ('192.168.10.5', '192.168.10.5', 'kitchen-echo', ?, ?)",
+        (now, now),
+    )
+    conn.commit()
+
+    captured = []
+
+    def _capture(base_url, messages, api_key=None, response_format=None):
+        captured.append(messages[1]["content"])
+        return json.dumps(FAKE_RECOMMENDATION)
+
+    monkeypatch.setattr(engine, "chat_completion", _capture)
+
+    engine.run_analysis_pass(conn, _config(llm_send_real_identifiers=False))
+    assert "kitchen-echo" not in captured[0]
+
+    conn.execute("DELETE FROM recommendations")
+    conn.commit()
+    captured.clear()
+
+    engine.run_analysis_pass(conn, _config(llm_send_real_identifiers=True))
+    assert "kitchen-echo" in captured[0]
 
 
 def test_llm_failure_is_skipped_not_raised(tmp_path, monkeypatch):

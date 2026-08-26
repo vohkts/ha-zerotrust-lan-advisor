@@ -73,3 +73,34 @@ def test_device_guess_messages_handle_no_evidence_at_all():
     user_text = messages[1]["content"]
     assert "unknown" in user_text
     assert "No destination port data available" in user_text
+
+
+def test_real_identifiers_are_omitted_by_default():
+    messages = build_recommendation_messages(PATTERN, src_confidence="high", dst_confidence="medium")
+    user_text = messages[1]["content"]
+    assert "Real source device" not in user_text
+    assert "Real destination device" not in user_text
+
+
+def test_real_identifiers_appear_only_when_explicitly_passed():
+    messages = build_recommendation_messages(
+        PATTERN, src_confidence="high", dst_confidence="medium",
+        src_identifiers=["kitchen-echo", "bedroom-echo"], dst_identifiers=["influxdb.local"],
+    )
+    user_text = messages[1]["content"]
+    assert "kitchen-echo" in user_text and "bedroom-echo" in user_text
+    assert "influxdb.local" in user_text
+
+
+def test_device_guess_real_identifier_omitted_by_default():
+    messages = build_device_guess_messages(vendor="Synology, Inc.", event_count=1, top_ports=[], top_partners=[])
+    user_text = messages[1]["content"]
+    assert "Real device name/IP" not in user_text
+
+
+def test_device_guess_real_identifier_appears_only_when_explicitly_passed():
+    messages = build_device_guess_messages(
+        vendor="Synology, Inc.", event_count=1, top_ports=[], top_partners=[], real_identifier="nas.local",
+    )
+    user_text = messages[1]["content"]
+    assert "nas.local" in user_text

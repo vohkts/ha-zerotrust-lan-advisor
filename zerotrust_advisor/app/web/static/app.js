@@ -687,3 +687,64 @@ document.addEventListener("click", async (event) => {
 
   detailCell.appendChild(root);
 });
+
+// An accepted recommendation's "Implemented" chip: opens a popup with the
+// matched rule's own detail, reusing the exact endpoint the Network
+// page's policy expand-row above already calls — same data, different
+// (modal, not inline-row) presentation since a recommendation card has no
+// table row to expand into.
+const ruleDetailDialog = document.getElementById("rule-detail-dialog");
+if (ruleDetailDialog) {
+  const contentEl = document.getElementById("rule-detail-content");
+
+  function showMessage(text) {
+    contentEl.replaceChildren();
+    const p = document.createElement("p");
+    p.textContent = text;
+    contentEl.appendChild(p);
+  }
+
+  document.getElementById("rule-detail-close").addEventListener("click", () => ruleDetailDialog.close());
+  ruleDetailDialog.addEventListener("click", (event) => {
+    if (event.target === ruleDetailDialog) ruleDetailDialog.close(); // click on the backdrop itself
+  });
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest(".implemented-link[data-policy-id]");
+    if (!button) return;
+
+    showMessage("Loading…");
+    ruleDetailDialog.showModal();
+
+    let data;
+    try {
+      data = await (await fetch(`network/policy-detail?id=${encodeURIComponent(button.dataset.policyId)}`)).json();
+    } catch (err) {
+      showMessage(`Failed to load: ${err.message}`);
+      return;
+    }
+    if (data.error) {
+      showMessage(`Could not load this rule (${data.error}) — it may have been deleted since this recommendation was accepted.`);
+      return;
+    }
+
+    contentEl.replaceChildren();
+    const heading = document.createElement("h3");
+    heading.textContent = data.name;
+    contentEl.appendChild(heading);
+
+    const summary = document.createElement("p");
+    summary.className = "hint";
+    summary.textContent =
+      `${data.enabled ? "Enabled" : "Disabled"} — ${data.action || "action unknown"} — ` +
+      `${data.source_zone} → ${data.destination_zone} — ~${data.event_count} matched event(s) in the ` +
+      `last ${data.event_count_window_days} days (best-effort).`;
+    contentEl.appendChild(summary);
+
+    contentEl.appendChild(
+      labeledList("Configuration", Object.entries(data.raw), (li, [key, value]) => {
+        li.textContent = `${key}: ${JSON.stringify(value)}`;
+      })
+    );
+  });
+}

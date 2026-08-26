@@ -191,6 +191,7 @@ def save_settings():
             "llm_mode": form.get("llm_mode", "local"),
             "llm_remote_base_url": form.get("llm_remote_base_url", "").strip(),
             "llm_model_path": form.get("llm_model_path", "").strip(),
+            "llm_send_real_identifiers": "llm_send_real_identifiers" in form,
             "unifi_enabled": "unifi_enabled" in form,
             "unifi_host": form.get("unifi_host", "").strip(),
             "unifi_verify_tls": "unifi_verify_tls" in form,

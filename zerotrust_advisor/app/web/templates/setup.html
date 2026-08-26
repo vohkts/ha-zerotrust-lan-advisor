@@ -175,6 +175,16 @@
       <em>classes</em> like "iPhone" or "Apple HomePod / smart speaker", never real
       IPs, MACs or hostnames. See DOCS.md for exactly what that means before turning it on.
     </p>
+    <label>
+      <input type="checkbox" name="llm_send_real_identifiers" {% if config.llm_send_real_identifiers %}checked{% endif %}>
+      Send real hostnames/IPs instead of device classes
+    </label>
+    <p class="hint">
+      Off by default, for either LLM mode. Only turn this on if wherever you've pointed the endpoint
+      above &mdash; local or remote &mdash; never actually leaves your own network, e.g. a self-hosted
+      Ollama instance on your LAN. Real device names can make recommendations more specific, but this
+      is meaningless (and a real privacy trade-off) to enable against an actual third-party service.
+    </p>
 
     {% if config.llm_mode == 'local' %}
     <div class="capacity-check">

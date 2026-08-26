@@ -31,19 +31,23 @@ logger = logging.getLogger(__name__)
 recommendations_bp = Blueprint("recommendations", __name__)
 
 
-def _implemented_status(pattern_signature: str, real_policies: list) -> bool | None:
-    """Whether a matching narrow, enabled ALLOW rule now exists for this
-    recommendation's port -- see rule_match.py. None (shown as "unknown")
-    when the pattern has no specific port to check, not when no rule was
-    found; "no rule found" is a real False, not an unknown."""
+def _implemented_status(pattern_signature: str, real_policies: list) -> tuple[bool | None, str | None, str | None]:
+    """(implemented, matched_policy_id, matched_policy_name). implemented
+    is None (shown as "unknown") only when the pattern has no specific
+    port to check -- "no rule found" is a real False, not an unknown.
+    matched_policy_id lets the UI link straight to that rule's own detail
+    view (see rule_match.py for what "covers" means here)."""
     parts = pattern_signature.split("|")
     if len(parts) != 6:
-        return None
+        return None, None, None
     try:
         port = int(parts[5])
     except ValueError:
-        return None
-    return find_covering_policy(real_policies, port) is not None
+        return None, None, None
+    policy = find_covering_policy(real_policies, port)
+    if policy is None:
+        return False, None, None
+    return True, policy.id, policy.name
 
 
 def _load_items(conn, category: str, real_policies: list | None = None):
@@ -62,12 +66,16 @@ def _load_items(conn, category: str, real_policies: list | None = None):
             "structured": json.loads(row[4]),
             "confidence": row[5],
             "implemented": None,
+            "matched_policy_id": None,
+            "matched_policy_name": None,
         }
         # Only worth checking for recommendations the user has actually
         # accepted -- a pending or dismissed one being "implemented" or
         # not isn't a meaningful question yet.
         if real_policies is not None and item["status"] == "accepted":
-            item["implemented"] = _implemented_status(row[6], real_policies)
+            item["implemented"], item["matched_policy_id"], item["matched_policy_name"] = _implemented_status(
+                row[6], real_policies
+            )
         items.append(item)
     return items
 
@@ -79,21 +87,35 @@ def list_recommendations():
     # URL depth — every other link in this app is deliberately kept flat
     # (one segment) so relative URLs resolve correctly under whatever path
     # prefix Ingress assigns; see base.html.
+    #
+    # Open (pending) items are the default view per category; anything
+    # already accepted or dismissed moves to one combined "Accepted &
+    # Dismissed" tab instead of cluttering the working list -- reported
+    # live as wanting a clear separation, plus a way to reopen one.
     conn = get_db()
     real_policies = load_parsed_policies(conn)
+    zero_trust_all = _load_items(conn, "zero_trust", real_policies)
+    setup_all = _load_items(conn, "setup")
+
+    reviewed = [dict(item, category="zero_trust", category_label="Zero-Trust Rule") for item in zero_trust_all if item["status"] != "pending"]
+    reviewed += [dict(item, category="setup", category_label="Setup & Tuning") for item in setup_all if item["status"] != "pending"]
+    reviewed.sort(key=lambda item: item["created_at"], reverse=True)
+
     return render_template(
         "recommendations.html",
-        zero_trust_items=_load_items(conn, "zero_trust", real_policies),
-        setup_items=_load_items(conn, "setup"),
+        zero_trust_items=[item for item in zero_trust_all if item["status"] == "pending"],
+        setup_items=[item for item in setup_all if item["status"] == "pending"],
+        reviewed_items=reviewed,
     )
 
 
 @recommendations_bp.route("/recommendations/<int:rec_id>/<action>", methods=["POST"])
 def update_recommendation(rec_id: int, action: str):
-    if action not in ("accept", "dismiss"):
+    status_for_action = {"accept": "accepted", "dismiss": "dismissed", "reopen": "pending"}
+    if action not in status_for_action:
         return jsonify({"error": "unknown action"}), 400
 
-    status = "accepted" if action == "accept" else "dismissed"
+    status = status_for_action[action]
     conn = get_db()
     conn.execute("UPDATE recommendations SET status = ? WHERE id = ?", (status, rec_id))
     conn.commit()

@@ -12,28 +12,23 @@
   <button type="button" class="tab-toggle" data-tab="setup">
     Setup &amp; Tuning {% if setup_items %}({{ setup_items | length }}){% endif %}
   </button>
+  <button type="button" class="tab-toggle" data-tab="reviewed">
+    Accepted &amp; Dismissed {% if reviewed_items %}({{ reviewed_items | length }}){% endif %}
+  </button>
 </div>
 
 <div class="tab-panel" data-tab-panel="zero_trust">
   <p class="hint">Real segmentation decisions — a specific firewall allow rule to consider, based on
      recurring traffic between two devices. New recommendations skip anything a narrow, enabled allow
      rule already covers on your UniFi console — a broad "allow everything" rule never counts as
-     coverage. Once you've accepted one, "Implemented"/"Not yet implemented" checks the same way:
-     port-only, best-effort — it can't see whether the source/destination scope actually matches.</p>
+     coverage. Open (pending) ones only; see the "Accepted &amp; Dismissed" tab for what you've already
+     reviewed.</p>
   {% if not zero_trust_items %}
-    <p>Nothing yet. Recommendations show up here once the same traffic pattern has recurred
+    <p>Nothing open right now. Recommendations show up here once the same traffic pattern has recurred
        across enough distinct days — see the Setup screen to check what's being collected.</p>
   {% else %}
-  <div class="filter-row">
-    <input type="search" class="table-filter" data-filter-for="zero-trust-list"
-           placeholder="Filter by device, network, port, action…">
-    <select class="table-filter" data-status-filter-for="zero-trust-list">
-      <option value="">All statuses</option>
-      <option value="pending">Pending</option>
-      <option value="accepted">Accepted</option>
-      <option value="dismissed">Dismissed</option>
-    </select>
-  </div>
+  <input type="search" class="table-filter" data-filter-for="zero-trust-list"
+         placeholder="Filter by device, network, port, action…">
   <div class="recommendation-list" id="zero-trust-list">
   {% for item in zero_trust_items %}
   <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}" data-status="{{ item.status }}">
@@ -41,14 +36,6 @@
       <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
       {% if item.structured.action %}
       <span class="chip {{ 'chip-danger' if item.structured.action == 'block' else 'chip-ok' }}">{{ item.structured.action }}</span>
-      {% endif %}
-      <span class="status">{{ item.status }}</span>
-      {% if item.implemented is not none %}
-        {% if item.implemented %}
-        <span class="chip chip-ok">Implemented</span>
-        {% else %}
-        <span class="chip chip-warn">Not yet implemented</span>
-        {% endif %}
       {% endif %}
       <time>{{ item.created_at | fmt_time }}</time>
     </header>
@@ -69,12 +56,10 @@
       <dd><ul>{% for c in item.structured.caveats %}<li>{{ c }}</li>{% endfor %}</ul></dd>
       {% endif %}
     </dl>
-    {% if item.status == 'pending' %}
     <div class="actions">
       <button type="button" class="accept" data-action="recommendations/{{ item.id }}/accept">Accept</button>
       <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/dismiss">Dismiss</button>
     </div>
-    {% endif %}
   </article>
   {% endfor %}
   </div>
@@ -83,9 +68,10 @@
 
 <div class="tab-panel" data-tab-panel="setup" hidden>
   <p class="hint">How to make this add-on's own view of your network more accurate — logging noise worth
-     turning down, or gaps worth closing. Deterministic, not LLM-generated; these don't touch your firewall.</p>
+     turning down, or gaps worth closing. Deterministic, not LLM-generated; these don't touch your firewall.
+     Open (pending) ones only; see the "Accepted &amp; Dismissed" tab for what you've already reviewed.</p>
   {% if not setup_items %}
-    <p>Nothing found yet. Also check the Setup screen's live coverage checks — those catch gaps
+    <p>Nothing open right now. Also check the Setup screen's live coverage checks — those catch gaps
        (e.g. "no NetFlow data yet") that don't get a persisted entry here.</p>
   {% else %}
   <input type="search" class="table-filter" data-filter-for="setup-list" placeholder="Filter…">
@@ -94,22 +80,77 @@
   <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}" data-status="{{ item.status }}">
     <header>
       <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
-      <span class="status">{{ item.status }}</span>
       <time>{{ item.created_at | fmt_time }}</time>
     </header>
     <p class="summary">{{ item.summary }}</p>
     {% if item.structured.caveats %}
     <dl><dt>Caveats</dt><dd><ul>{% for c in item.structured.caveats %}<li>{{ c }}</li>{% endfor %}</ul></dd></dl>
     {% endif %}
-    {% if item.status == 'pending' %}
     <div class="actions">
       <button type="button" class="accept" data-action="recommendations/{{ item.id }}/accept">Done, dismiss</button>
       <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/dismiss">Not relevant</button>
     </div>
-    {% endif %}
   </article>
   {% endfor %}
   </div>
   {% endif %}
 </div>
+
+<div class="tab-panel" data-tab-panel="reviewed" hidden>
+  <p class="hint">Everything you've already accepted or dismissed, from both tabs above. Accepted
+     zero-trust rules show whether a matching rule has actually shown up in your UniFi console yet —
+     click "Implemented" to see that rule's own detail. Reopen puts an item back in its open tab.</p>
+  {% if not reviewed_items %}
+    <p>Nothing reviewed yet.</p>
+  {% else %}
+  <div class="filter-row">
+    <input type="search" class="table-filter" data-filter-for="reviewed-list"
+           placeholder="Filter by device, network, port…">
+    <select class="table-filter" data-status-filter-for="reviewed-list">
+      <option value="">Accepted &amp; dismissed</option>
+      <option value="accepted">Accepted only</option>
+      <option value="dismissed">Dismissed only</option>
+    </select>
+  </div>
+  <div class="recommendation-list" id="reviewed-list">
+  {% for item in reviewed_items %}
+  <article class="recommendation recommendation-{{ item.status }}" data-rec-id="{{ item.id }}" data-status="{{ item.status }}">
+    <header>
+      <span class="chip">{{ item.category_label }}</span>
+      <span class="chip chip-confidence-{{ item.confidence }}">{{ item.confidence }} confidence</span>
+      {% if item.structured.action %}
+      <span class="chip {{ 'chip-danger' if item.structured.action == 'block' else 'chip-ok' }}">{{ item.structured.action }}</span>
+      {% endif %}
+      <span class="status">{{ item.status }}</span>
+      {% if item.implemented is not none %}
+        {% if item.implemented %}
+        <button type="button" class="chip chip-ok implemented-link" data-policy-id="{{ item.matched_policy_id }}">Implemented</button>
+        {% else %}
+        <span class="chip chip-warn">Not yet implemented</span>
+        {% endif %}
+      {% endif %}
+      <time>{{ item.created_at | fmt_time }}</time>
+    </header>
+    <p class="summary">{{ item.summary }}</p>
+    {% if item.structured.rule_source %}
+    <p class="rule-chip">
+      <code>{{ item.structured.rule_source }}</code>
+      <span aria-hidden="true">&rarr;</span>
+      <code>{{ item.structured.rule_destination }}</code>
+      <code>{{ item.structured.rule_protocol_port }}</code>
+    </p>
+    {% endif %}
+    <div class="actions">
+      <button type="button" class="dismiss" data-action="recommendations/{{ item.id }}/reopen">Reopen</button>
+    </div>
+  </article>
+  {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<dialog id="rule-detail-dialog">
+  <div id="rule-detail-content"></div>
+  <button type="button" id="rule-detail-close">Close</button>
+</dialog>
 {% endblock %}
