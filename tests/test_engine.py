@@ -35,6 +35,7 @@ def _config(**overrides):
         allowed_sources=(),
         network_labels=("192.168.10.0/24=IoT", "192.168.20.0/24=Home"),
         retention_days=90,
+        storage_safety_buffer_mb=2048,
         min_recurring_days=3,
         ignore_own_receiver_traffic=True,
         enable_mdns_classification=False,

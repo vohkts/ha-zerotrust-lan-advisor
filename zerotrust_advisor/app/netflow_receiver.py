@@ -9,7 +9,7 @@ import socket
 import time
 
 from app.config import load_config
-from app.db import connect, prune
+from app.db import connect, prune, prune_if_low_disk
 from app.health import HealthReporter, read_health
 from app.netflow_decode import TemplateCache, decode_packet
 
@@ -99,6 +99,7 @@ def main() -> None:
 
         if now - last_prune > _PRUNE_INTERVAL_SECONDS:
             prune(conn, config.retention_days, now)
+            prune_if_low_disk(conn, config.db_path, config.storage_safety_buffer_mb, now)
             last_prune = now
 
     conn.commit()

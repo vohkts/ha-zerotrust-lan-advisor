@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.2
+
+### Fixed
+
+- The database could grow without bound even with `retention_days`
+  correctly configured and pruning on schedule: SQLite never returns
+  deleted rows' disk space to the OS without a `VACUUM`, which nothing
+  ever ran. Measured live on this add-on's own host: ~1.6GB/day of
+  firewall/flow volume, which quietly grew `zerotrust.db` to 34GB (nearly
+  the entire disk) over three weeks before a manual emergency cleanup was
+  needed. Two changes:
+  - The database now converts to `auto_vacuum=INCREMENTAL` on first
+    connect (existing databases included, via a one-time `VACUUM` at that
+    point), so freed pages return to the OS continuously and cheaply
+    instead of requiring an occasional full `VACUUM` that needs headroom
+    roughly equal to the entire kept dataset — headroom a nearly-full disk
+    may not have.
+  - New setting: **Storage safety buffer (MB)** (default 2048). Independent
+    of `retention_days`, if free space on the database's volume drops below
+    this buffer, the receivers now prune older data than `retention_days`
+    allows — in bounded steps, oldest first — until the buffer is restored.
+    A backstop for when actual traffic volume outgrows the configured
+    retention window before anyone notices the disk filling up.
+
 ## 0.4.1
 
 ### Fixed
