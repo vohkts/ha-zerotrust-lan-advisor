@@ -24,6 +24,7 @@ DEFAULTS = {
     "allowed_sources": [],
     "network_labels": [],
     "retention_days": 90,
+    "storage_safety_buffer_mb": 2048,
     "min_recurring_days": 3,
     "ignore_own_receiver_traffic": True,
     "enable_mdns_classification": False,
@@ -48,6 +49,14 @@ class Config:
     allowed_sources: tuple[str, ...]
     network_labels: tuple[str, ...]
     retention_days: int
+    # Independent backstop on top of retention_days -- see
+    # db.prune_if_low_disk(). retention_days assumes the configured window
+    # actually fits on this disk; when it doesn't (a single home network's
+    # firewall/flow volume can outgrow a modest disk within weeks even at
+    # the 90-day default), the receivers prune further than retention_days
+    # whenever free space on the database's volume drops below this many
+    # MB, until the buffer is satisfied again.
+    storage_safety_buffer_mb: int
     min_recurring_days: int
     ignore_own_receiver_traffic: bool
     enable_mdns_classification: bool
@@ -115,6 +124,7 @@ def load_config() -> Config:
         allowed_sources=tuple(raw["allowed_sources"]),
         network_labels=tuple(raw["network_labels"]),
         retention_days=int(raw["retention_days"]),
+        storage_safety_buffer_mb=int(raw["storage_safety_buffer_mb"]),
         min_recurring_days=int(raw["min_recurring_days"]),
         ignore_own_receiver_traffic=bool(raw["ignore_own_receiver_traffic"]),
         enable_mdns_classification=bool(raw["enable_mdns_classification"]),

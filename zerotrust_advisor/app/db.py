@@ -3,9 +3,13 @@
 """
 from __future__ import annotations
 
+import logging
+import shutil
 import sqlite3
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events_firewall (
@@ -265,7 +269,37 @@ def connect(db_path: Path) -> sqlite3.Connection:
             time.sleep(delay)
             delay *= 2
 
+    _ensure_incremental_auto_vacuum(conn)
+
     return conn
+
+
+def _ensure_incremental_auto_vacuum(conn: sqlite3.Connection) -> None:
+    """auto_vacuum=INCREMENTAL lets PRAGMA incremental_vacuum return freed
+    pages to the OS a little at a time, without the free-space headroom a
+    full VACUUM needs (roughly the size of the data being kept -- on a
+    disk that's already tight, VACUUM can need more headroom than exists;
+    see prune_if_low_disk below). SQLite only honours a changed
+    auto_vacuum pragma after the next VACUUM, so a database created before
+    this existed (auto_vacuum=NONE, the default) needs a one-time
+    conversion. Cheap once done: later connects see auto_vacuum already
+    =2 and return immediately.
+    """
+    current = conn.execute("PRAGMA auto_vacuum").fetchone()[0]
+    if current == 2:
+        return
+    try:
+        conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+        conn.execute("VACUUM")
+    except sqlite3.OperationalError:
+        # Another writer is mid-VACUUM, or holds a lock this needs -- skip
+        # this attempt. Every service reconnects on its own restart, and
+        # each periodic prune_if_low_disk call reopens nothing, so a later
+        # container start (this service's or another's) tries again.
+        logger.warning(
+            "Could not convert database to incremental auto_vacuum this "
+            "attempt; will retry on a later connect"
+        )
 
 
 def prune(conn: sqlite3.Connection, retention_days: int, now: float) -> None:
@@ -273,3 +307,75 @@ def prune(conn: sqlite3.Connection, retention_days: int, now: float) -> None:
     conn.execute("DELETE FROM events_firewall WHERE ts < ?", (cutoff,))
     conn.execute("DELETE FROM events_flow WHERE ts_start < ?", (cutoff,))
     conn.commit()
+
+
+def prune_if_low_disk(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    buffer_mb: int,
+    now: float,
+    min_retain_seconds: int = 3600,
+) -> float | None:
+    """Backstop for prune() above: retention_days assumes the configured
+    window actually fits on this disk, and it often doesn't -- a single
+    home network's firewall/flow volume can outgrow a modest disk within
+    weeks even at the default 90-day setting (measured live on this add-on's
+    own host: ~1.6GB/day, so 90 days needs ~146GB). If free space on the
+    volume holding the database drops below buffer_mb, this keeps deleting
+    the oldest slice of data -- independent of retention_days -- until
+    either free space recovers above the buffer or there's nothing left
+    newer than min_retain_seconds to give up. Bounded to 40 iterations
+    (up to 10 days of data) per call so one invocation can't block a
+    receiver loop indefinitely; the next periodic call picks up where this
+    one left off. Returns the oldest timestamp still retained after
+    acting, or None if the buffer was already satisfied and nothing was
+    touched.
+    """
+    free_bytes = shutil.disk_usage(db_path.parent).free
+    buffer_bytes = buffer_mb * 1024 * 1024
+    if free_bytes >= buffer_bytes:
+        return None
+
+    logger.warning(
+        "Free disk space (%.0fMB) is below the configured safety buffer "
+        "(%dMB) -- pruning beyond retention_days to recover space",
+        free_bytes / (1024 * 1024),
+        buffer_mb,
+    )
+
+    rows = conn.execute(
+        "SELECT min(ts) FROM events_firewall "
+        "UNION ALL SELECT min(ts_start) FROM events_flow"
+    ).fetchall()
+    candidates = [row[0] for row in rows if row[0] is not None]
+    if not candidates:
+        return None
+
+    cursor = min(candidates)
+    floor = now - min_retain_seconds
+    step = 21600  # 6 hours per iteration -- matches the manual incident cleanup this mirrors
+    oldest_kept = cursor
+
+    for _ in range(40):
+        if cursor >= floor:
+            break
+        if shutil.disk_usage(db_path.parent).free >= buffer_bytes:
+            break
+        cutoff = min(cursor + step, floor)
+        conn.execute("DELETE FROM events_firewall WHERE ts < ?", (cutoff,))
+        conn.execute("DELETE FROM events_flow WHERE ts_start < ?", (cutoff,))
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("PRAGMA incremental_vacuum")
+        oldest_kept = cutoff
+        cursor = cutoff
+
+    if shutil.disk_usage(db_path.parent).free < buffer_bytes:
+        logger.error(
+            "Still below the storage safety buffer after emergency pruning "
+            "-- retained data now starts at %.0f. Consider lowering "
+            "retention_days or increasing disk size.",
+            oldest_kept,
+        )
+
+    return oldest_kept

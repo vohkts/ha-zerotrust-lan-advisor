@@ -200,3 +200,114 @@ def test_connect_is_idempotent_on_an_already_migrated_database(tmp_path):
     conn = db.connect(db_path)  # a second connect() must not raise or duplicate anything
     columns = [row[1] for row in conn.execute("PRAGMA table_info(recommendations)")]
     assert columns.count("category") == 1
+
+
+def test_connect_converts_a_fresh_database_to_incremental_auto_vacuum(tmp_path):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2  # 2 == incremental
+
+
+def test_connect_converts_a_pre_existing_auto_vacuum_none_database(tmp_path):
+    # Simulates every real database created before this existed: default
+    # auto_vacuum=NONE, already holding data.
+    db_path = tmp_path / "zerotrust.db"
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute(
+        "CREATE TABLE events_firewall (id INTEGER PRIMARY KEY, ts REAL NOT NULL, "
+        "src_ip TEXT NOT NULL, dst_ip TEXT NOT NULL, src_port INTEGER, dst_port INTEGER, "
+        "proto INTEGER NOT NULL, iface_in TEXT, iface_out TEXT, rule_prefix TEXT, "
+        "action TEXT, received_at REAL NOT NULL)"
+    )
+    old_conn.execute(
+        "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, received_at) "
+        "VALUES (1700000000, '10.0.0.1', '10.0.0.2', 6, 1700000000)"
+    )
+    old_conn.commit()
+    old_conn.close()
+    assert sqlite3.connect(db_path).execute("PRAGMA auto_vacuum").fetchone()[0] == 0  # NONE
+
+    conn = db.connect(db_path)  # must not raise, and must convert
+
+    assert conn.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
+    # The pre-existing row must survive the VACUUM this conversion runs.
+    row = conn.execute("SELECT src_ip, dst_ip FROM events_firewall").fetchone()
+    assert row == ("10.0.0.1", "10.0.0.2")
+
+
+def test_prune_if_low_disk_does_nothing_when_free_space_is_above_the_buffer(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    conn.execute(
+        "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, received_at) "
+        "VALUES (1000, '10.0.0.1', '10.0.0.2', 6, 1000)"
+    )
+    conn.commit()
+
+    monkeypatch.setattr(
+        db.shutil, "disk_usage", lambda path: type("Usage", (), {"free": 10 * 1024 * 1024 * 1024})()
+    )
+
+    result = db.prune_if_low_disk(conn, tmp_path / "zerotrust.db", buffer_mb=2048, now=100_000)
+
+    assert result is None
+    assert conn.execute("SELECT count(*) FROM events_firewall").fetchone()[0] == 1
+
+
+def test_prune_if_low_disk_deletes_oldest_data_first_when_below_the_buffer(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    now = 1_000_000
+    # One row a day apart for 10 days, oldest first.
+    for day in range(10):
+        ts = now - day * 86400
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, received_at) "
+            "VALUES (?, '10.0.0.1', '10.0.0.2', 6, ?)",
+            (ts, ts),
+        )
+    conn.commit()
+
+    # Free space never recovers above the buffer in this test, so pruning
+    # runs until it hits min_retain_seconds -- confirms it stops there
+    # rather than deleting everything.
+    monkeypatch.setattr(
+        db.shutil, "disk_usage", lambda path: type("Usage", (), {"free": 0})()
+    )
+
+    db.prune_if_low_disk(conn, tmp_path / "zerotrust.db", buffer_mb=2048, now=now, min_retain_seconds=3600)
+
+    remaining = [row[0] for row in conn.execute("SELECT ts FROM events_firewall ORDER BY ts")]
+    assert remaining  # the most recent row(s), inside min_retain_seconds, must survive
+    assert min(remaining) >= now - 3600 - 21600  # oldest surviving row is within one step of the floor
+    assert len(remaining) < 10  # older rows were actually removed
+
+
+def test_prune_if_low_disk_stops_once_free_space_recovers(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "zerotrust.db")
+    now = 1_000_000
+    for day in range(10):
+        ts = now - day * 86400
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, received_at) "
+            "VALUES (?, '10.0.0.1', '10.0.0.2', 6, ?)",
+            (ts, ts),
+        )
+    conn.commit()
+
+    # Reports as below the buffer exactly once, then recovered -- as if
+    # the first deleted chunk was enough.
+    calls = {"n": 0}
+
+    def fake_disk_usage(path):
+        calls["n"] += 1
+        # Call 1 is the entry check, call 2 is the first loop iteration's
+        # pre-delete check -- both report low so exactly one chunk gets
+        # deleted; call 3 (the next iteration's pre-delete check) reports
+        # recovered, so the loop stops there.
+        free = 0 if calls["n"] <= 2 else 10 * 1024 * 1024 * 1024
+        return type("Usage", (), {"free": free})()
+
+    monkeypatch.setattr(db.shutil, "disk_usage", fake_disk_usage)
+
+    db.prune_if_low_disk(conn, tmp_path / "zerotrust.db", buffer_mb=2048, now=now)
+
+    remaining = conn.execute("SELECT count(*) FROM events_firewall").fetchone()[0]
+    assert remaining == 9  # only the single oldest 6-hour chunk was removed

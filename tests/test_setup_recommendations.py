@@ -17,7 +17,7 @@ def _config(tmp_path, monkeypatch, **overrides):
     monkeypatch.setattr(config_module, "DATA_DIR", tmp_path)
     base = dict(
         syslog_port=514, netflow_port=2055, allowed_sources=(), network_labels=(),
-        retention_days=90, min_recurring_days=3, ignore_own_receiver_traffic=True,
+        retention_days=90, storage_safety_buffer_mb=2048, min_recurring_days=3, ignore_own_receiver_traffic=True,
         enable_mdns_classification=False, llm_mode="local", llm_remote_base_url="", llm_model_path="", llm_send_real_identifiers=False,
         unifi_enabled=False, unifi_host="", unifi_verify_tls=False, unifi_apply_mode="manual", unifi_apply_acknowledged=False,
         display_timezone_utc=False, ignore_unifi_console_traffic=True,

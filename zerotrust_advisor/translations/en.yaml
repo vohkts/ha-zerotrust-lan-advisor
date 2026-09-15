@@ -14,6 +14,9 @@ configuration:
   retention_days:
     name: Retention (days)
     description: How long parsed events are kept before being pruned.
+  storage_safety_buffer_mb:
+    name: Storage safety buffer (MB)
+    description: If free space on the database's disk drops below this, the add-on prunes older events than Retention allows until the buffer is restored again. A backstop for when actual traffic volume outgrows the configured retention window before it outgrows the disk.
   min_recurring_days:
     name: Minimum recurring days
     description: A traffic pattern must recur across at least this many distinct days before it's suggested.

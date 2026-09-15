@@ -1,5 +1,5 @@
 name: Zero-Trust LAN Advisor
-version: "0.4.1"
+version: "0.4.2"
 slug: zerotrust_advisor
 description: Passive firewall/flow log analysis with LLM-assisted zero-trust rule recommendations
 url: https://github.com/vohkts/ha-zerotrust-lan-advisor
@@ -30,6 +30,7 @@ options:
   allowed_sources: []
   network_labels: []
   retention_days: 90
+  storage_safety_buffer_mb: 2048
   min_recurring_days: 3
   ignore_own_receiver_traffic: true
   enable_mdns_classification: false
@@ -52,6 +53,7 @@ schema:
   network_labels:
     - match(^.+=.+$)
   retention_days: int(7,365)
+  storage_safety_buffer_mb: int(256,102400)
   min_recurring_days: int(1,30)
   ignore_own_receiver_traffic: bool
   enable_mdns_classification: bool
