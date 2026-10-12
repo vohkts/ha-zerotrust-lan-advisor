@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.3
+
+### Fixed
+
+- **The disk-full incident recurred 2026-10-12, 0.4.2's own fix notwithstanding.**
+  Two separate causes:
+  - 0.4.2 added the `storage_safety_buffer_mb` option to `config.yaml`'s
+    schema without bumping the version string -- the exact class of bug
+    already fixed once in 0.4.0 ("bump version to force schema reload"),
+    reintroduced by not following that same convention here. Supervisor
+    caches an add-on's option schema keyed by version, so a schema change
+    with no version bump is silently invisible to it: the option could be
+    read by this app's own code (which has its own in-process default),
+    but Supervisor would accept a POST changing it and then quietly keep
+    writing back its own stale default on every save. Confirmed live: a
+    POST setting it to 6144 returned 200 OK and then read back as 2048,
+    repeatably, until the add-on was rebuilt at a bumped version.
+  - `retention_days` (35, set during the September incident) was sized
+    without accounting for this host's other disk consumers -- Docker's
+    own image/layer storage and Home Assistant's core config together
+    account for roughly half the disk on their own. 35 days of this
+    app's own measured ~1.6GB/day growth doesn't fit what's actually left
+    over once those are accounted for. Lowered to 15 days, sized against
+    the real remaining budget this time, not just the total disk size.
+  - `prune()`, the routine retention sweep, never checkpointed the WAL --
+    only the emergency `prune_if_low_disk()` path did. Measured live: the
+    WAL alone reached 361MB between emergency triggers, work the safety
+    buffer never got credit for since it only acts once free space is
+    already low. `prune()` now checkpoints and incrementally vacuums on
+    every call, matching `prune_if_low_disk()`'s own pattern.
+
 ## 0.4.2
 
 ### Fixed

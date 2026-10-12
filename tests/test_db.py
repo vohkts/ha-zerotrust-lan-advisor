@@ -234,6 +234,52 @@ def test_connect_converts_a_pre_existing_auto_vacuum_none_database(tmp_path):
     assert row == ("10.0.0.1", "10.0.0.2")
 
 
+def test_prune_deletes_rows_older_than_retention(tmp_path):
+    db_path = tmp_path / "zerotrust.db"
+    conn = db.connect(db_path)
+    now = 1_000_000
+    for day in range(10):
+        ts = now - day * 86400
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, received_at) "
+            "VALUES (?, '10.0.0.1', '10.0.0.2', 6, ?)",
+            (ts, ts),
+        )
+    conn.commit()
+
+    db.prune(conn, retention_days=5, now=now)
+
+    # DELETE uses `ts < cutoff`, so the row exactly at the cutoff survives --
+    # days 0-5 remain (6 rows), days 6-9 are gone.
+    remaining = [row[0] for row in conn.execute("SELECT ts FROM events_firewall ORDER BY ts")]
+    assert len(remaining) == 6
+    assert min(remaining) >= now - 5 * 86400
+
+
+def test_prune_checkpoints_the_wal(tmp_path):
+    # Found live 2026-10-12: this path deleted+committed but never
+    # truncated the WAL, so it grew unbounded (361MB observed) between
+    # prune_if_low_disk's own emergency triggers -- defeating the safety
+    # buffer, which only reacts once free space is already low.
+    db_path = tmp_path / "zerotrust.db"
+    conn = db.connect(db_path)
+    now = 1_000_000
+    for day in range(20):
+        ts = now - day * 86400
+        conn.execute(
+            "INSERT INTO events_firewall (ts, src_ip, dst_ip, proto, received_at) "
+            "VALUES (?, '10.0.0.1', '10.0.0.2', 6, ?)",
+            (ts, ts),
+        )
+    conn.commit()
+    wal_path = db_path.with_name(db_path.name + "-wal")
+    assert wal_path.exists() and wal_path.stat().st_size > 0
+
+    db.prune(conn, retention_days=5, now=now)
+
+    assert wal_path.stat().st_size == 0
+
+
 def test_prune_if_low_disk_does_nothing_when_free_space_is_above_the_buffer(tmp_path, monkeypatch):
     conn = db.connect(tmp_path / "zerotrust.db")
     conn.execute(
