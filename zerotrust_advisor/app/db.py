@@ -303,10 +303,24 @@ def _ensure_incremental_auto_vacuum(conn: sqlite3.Connection) -> None:
 
 
 def prune(conn: sqlite3.Connection, retention_days: int, now: float) -> None:
+    """Routine retention sweep, called on every receiver tick.
+
+    Unlike prune_if_low_disk below, this never checkpointed the WAL --
+    found live 2026-10-12 during a disk-full incident: the WAL had grown
+    to 361MB between emergency triggers, on top of whatever the main
+    file itself was holding, purely because this path deletes+commits but
+    never truncates. A disk that fills up primarily from the WAL between
+    triggers defeats the whole point of the safety buffer in
+    prune_if_low_disk, which only acts once free space is already low --
+    by then the WAL has already been eating into that same budget
+    unchecked. Matches prune_if_low_disk's own pattern exactly.
+    """
     cutoff = now - retention_days * 86400
     conn.execute("DELETE FROM events_firewall WHERE ts < ?", (cutoff,))
     conn.execute("DELETE FROM events_flow WHERE ts_start < ?", (cutoff,))
     conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.execute("PRAGMA incremental_vacuum")
 
 
 def prune_if_low_disk(
